@@ -1,0 +1,5 @@
+"480"
+{
+	"common" { "name" "Spacewar" "type" "Game" "releasestate" "released" }
+	"depots" { "481" { "name" "Spacewar" "manifests" { "public" { "gid" "6481" } } } }
+}

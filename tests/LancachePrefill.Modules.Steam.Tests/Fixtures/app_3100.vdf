@@ -1,0 +1,9 @@
+"3100"
+{
+	"common"
+	{
+		"name" "Example Mod" "type" "Game" "releasestate" "released"
+		"category" { "category_19" "1" }
+	}
+	"depots" { "3101" { "name" "Mod" "manifests" { "public" { "gid" "6101" } } } }
+}

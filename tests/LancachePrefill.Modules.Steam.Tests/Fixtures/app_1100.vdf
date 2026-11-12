@@ -1,0 +1,13 @@
+"1100"
+{
+	"common" { "name" "Example Game - Soundtrack" "type" "DLC" "parent" "1000" }
+	"depots"
+	{
+		"1101"
+		{
+			"name"		"Soundtrack"
+			"dlcappid"		"1100"
+			"manifests" { "public" { "gid" "5101" } }
+		}
+	}
+}

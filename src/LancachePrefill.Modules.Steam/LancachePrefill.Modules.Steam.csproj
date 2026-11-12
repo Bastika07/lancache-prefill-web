@@ -4,6 +4,10 @@
     <ProjectReference Include="..\LancachePrefill.Core\LancachePrefill.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SteamKit2" Version="3.5.0" />
+  </ItemGroup>
+
   <PropertyGroup>
   </PropertyGroup>
 

@@ -1,0 +1,88 @@
+"1000"
+{
+	"common"
+	{
+		"name"		"Example Game"
+		"type"		"Game"
+		"oslist"		"windows,macos,linux"
+		"releasestate"		"released"
+		"category"
+		{
+			"category_1"		"1"
+			"category_2"		"1"
+		}
+	}
+	"extended"
+	{
+		"listofdlc"		"1100,1200"
+	}
+	"depots"
+	{
+		"1001"
+		{
+			"name"		"Example Game Content"
+			"manifests" { "public" { "gid" "5001" "size" "1000" } }
+		}
+		"1002"
+		{
+			"name"		"Example Game Windows"
+			"config" { "oslist" "windows" }
+			"manifests" { "public" { "gid" "5002" } }
+		}
+		"1003"
+		{
+			"name"		"Example Game macOS"
+			"config" { "oslist" "macos" }
+			"manifests" { "public" { "gid" "5003" } }
+		}
+		"1004"
+		{
+			"name"		"Example Game Linux"
+			"config" { "oslist" "linux" }
+			"manifests" { "public" { "gid" "5004" } }
+		}
+		"1005"
+		{
+			"name"		"Example Game German"
+			"config" { "language" "german" }
+			"manifests" { "public" { "gid" "5005" } }
+		}
+		"1006"
+		{
+			"name"		"Example Game Low Violence"
+			"config" { "lowviolence" "1" }
+			"manifests" { "public" { "gid" "5006" } }
+		}
+		"1007"
+		{
+			"name"		"Example Game Windows 32-bit"
+			"config" { "oslist" "windows" "osarch" "32" }
+			"manifests" { "public" { "gid" "5007" } }
+		}
+		"1008"
+		{
+			"name"		"Shared Runtime (linked)"
+			"depotfromapp"		"2000"
+		}
+		"1009"
+		{
+			"name"		"Example Game Unlicensed Extras"
+			"manifests" { "public" "5009" }
+		}
+		"1010"
+		{
+			"name"		"Example Game English Voices"
+			"config" { "language" "english" }
+			"manifests" { "public" "5010" }
+		}
+		"228986"
+		{
+			"name"		"VC 2015 Redist"
+			"depotfromapp"		"228980"
+		}
+		"branches"
+		{
+			"public" { "buildid" "100" }
+		}
+	}
+}

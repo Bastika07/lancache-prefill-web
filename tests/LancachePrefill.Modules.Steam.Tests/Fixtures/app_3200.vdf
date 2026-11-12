@@ -1,0 +1,5 @@
+"3200"
+{
+	"common" { "name" "Delisted Game" "type" "Game" "releasestate" "unavailable" }
+	"depots" { "3201" { "name" "Delisted" "manifests" { "public" { "gid" "6201" } } } }
+}
