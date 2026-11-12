@@ -71,6 +71,24 @@ public sealed class JobQueueTests : IAsyncLifetime
         Assert.Equal(["rocket-league"], Assert.Single(epic.Runs).Request.GameIds);
     }
 
+    [Fact]
+    public async Task Cancelling_a_running_job_signals_its_module_and_the_queue_moves_on()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var running = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        queue.Enqueue("steam", new PrefillRequest(["570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        Assert.True(queue.Cancel(running.Id));
+        await running.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        await Eventually(() => steam.Runs.Count == 2);
+
+        Assert.True(steam.Runs[0].CancellationToken.IsCancellationRequested);
+        Assert.Equal(JobState.Cancelled, running.State);
+        Assert.Equal(["570"], steam.Runs[1].Request.GameIds);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

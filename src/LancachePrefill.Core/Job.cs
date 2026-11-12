@@ -58,6 +58,14 @@ public sealed class Job
         }
     }
 
+    internal void MarkCancelled()
+    {
+        lock (_lock)
+        {
+            Finish(JobState.Cancelled);
+        }
+    }
+
     internal void MarkSucceeded(PrefillResult result)
     {
         lock (_lock)

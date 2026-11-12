@@ -13,6 +13,11 @@ public sealed class JobQueue
     private readonly Channel<Job> _pending = Channel.CreateUnbounded<Job>(new UnboundedChannelOptions { SingleReader = true });
     private readonly ConcurrentDictionary<Guid, Job> _jobs = new();
 
+    // Guards the hand-over from "queued" to "running" so Cancel never misses a Job in between.
+    private readonly Lock _gate = new();
+    private Job? _runningJob;
+    private CancellationTokenSource? _runningCancellation;
+
     public JobQueue(IEnumerable<IPrefillModule> modules)
     {
         _modules = modules.ToDictionary(m => m.Id);
@@ -26,19 +31,60 @@ public sealed class JobQueue
         return job;
     }
 
-    /// <summary>Cancels a queued Job. Returns false if the Job is unknown or already past the queue.</summary>
-    public bool Cancel(Guid jobId) => _jobs.TryGetValue(jobId, out var job) && job.TryCancelQueued();
+    /// <summary>Cancels a queued or running Job. Returns false if the Job is unknown or already finished.</summary>
+    public bool Cancel(Guid jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+        {
+            return false;
+        }
+        lock (_gate)
+        {
+            if (job.TryCancelQueued())
+            {
+                return true;
+            }
+            if (_runningJob == job)
+            {
+                _runningCancellation!.Cancel();
+                return true;
+            }
+            return false;
+        }
+    }
 
     public async Task RunAsync(CancellationToken stoppingToken)
     {
         await foreach (var job in _pending.Reader.ReadAllAsync(stoppingToken))
         {
-            if (!job.TryStart())
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            lock (_gate)
             {
-                continue;
+                if (!job.TryStart())
+                {
+                    continue;
+                }
+                _runningJob = job;
+                _runningCancellation = cancellation;
             }
-            var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new Progress<PrefillProgress>(), stoppingToken);
-            job.MarkSucceeded(result);
+            try
+            {
+                var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new Progress<PrefillProgress>(), cancellation.Token);
+                job.MarkSucceeded(result);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                job.MarkCancelled();
+                stoppingToken.ThrowIfCancellationRequested();
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    _runningJob = null;
+                    _runningCancellation = null;
+                }
+            }
         }
     }
 }
