@@ -20,11 +20,26 @@ public sealed record JobRecord(
     public long AverageBytesPerSecond => Duration > TimeSpan.Zero ? (long)(BytesDownloaded / Duration.TotalSeconds) : 0;
 }
 
-/// <summary>Job history. Fed by the Job queue as an <see cref="IJobFinishedListener"/>.</summary>
-public interface IJobHistoryStore : IJobFinishedListener
+/// <summary>A Schedule firing as kept in the history.</summary>
+public sealed record FiringRecord(string ScheduleName, DateTimeOffset At, IReadOnlyList<ModuleFiringRecord> Modules);
+
+/// <summary>The Job enqueued for a Module, or none when it was skipped.</summary>
+public sealed record ModuleFiringRecord(string ModuleId, Guid? JobId)
+{
+    public bool Skipped => JobId is null;
+}
+
+/// <summary>
+/// Job history and Schedule firings. Fed by the Job queue (<see cref="IJobFinishedListener"/>)
+/// and the Scheduler (<see cref="IScheduleFiredListener"/>).
+/// </summary>
+public interface IJobHistoryStore : IJobFinishedListener, IScheduleFiredListener
 {
     /// <summary>Most recently finished first.</summary>
     Task<IReadOnlyList<JobRecord>> GetRecentAsync(int limit, CancellationToken ct);
+
+    /// <summary>Most recent first.</summary>
+    Task<IReadOnlyList<FiringRecord>> GetRecentFiringsAsync(int limit, CancellationToken ct);
 }
 
 internal sealed class JobHistoryStore(Func<PrefillDbContext> createContext) : IJobHistoryStore
@@ -34,6 +49,23 @@ internal sealed class JobHistoryStore(Func<PrefillDbContext> createContext) : IJ
         await using var context = createContext();
         context.JobRecords.Add(JobRecordEntity.From(job));
         await context.SaveChangesAsync(ct);
+    }
+
+    public async Task OnScheduleFiredAsync(ScheduleFiring firing, CancellationToken ct)
+    {
+        await using var context = createContext();
+        context.FiringRecords.Add(FiringRecordEntity.From(firing));
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<FiringRecord>> GetRecentFiringsAsync(int limit, CancellationToken ct)
+    {
+        await using var context = createContext();
+        var entities = await context.FiringRecords.AsNoTracking()
+            .OrderByDescending(e => e.At)
+            .Take(limit)
+            .ToListAsync(ct);
+        return [.. entities.Select(e => e.ToRecord())];
     }
 
     public async Task<IReadOnlyList<JobRecord>> GetRecentAsync(int limit, CancellationToken ct)
@@ -75,4 +107,23 @@ internal sealed class JobRecordEntity
     public JobRecord ToRecord() => new(
         JobId, ModuleId, State, EnqueuedAt, StartedAt, FinishedAt, FailureReason,
         JsonSerializer.Deserialize<List<GameOutcome>>(GamesJson, Json) ?? []);
+}
+
+internal sealed class FiringRecordEntity
+{
+    public Guid Id { get; set; }
+    public required string ScheduleName { get; set; }
+    public DateTimeOffset At { get; set; }
+    public required string ModulesJson { get; set; }
+
+    public static FiringRecordEntity From(ScheduleFiring firing) => new()
+    {
+        Id = Guid.NewGuid(),
+        ScheduleName = firing.ScheduleName,
+        At = firing.At,
+        ModulesJson = JsonSerializer.Serialize(firing.Modules.Select(m => new ModuleFiringRecord(m.ModuleId, m.Job?.Id)).ToList()),
+    };
+
+    public FiringRecord ToRecord() => new(
+        ScheduleName, At, JsonSerializer.Deserialize<List<ModuleFiringRecord>>(ModulesJson) ?? []);
 }

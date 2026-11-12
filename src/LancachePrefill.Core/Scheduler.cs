@@ -14,6 +14,7 @@ public sealed class Scheduler
     private readonly TimeZoneInfo _timeZone;
     private readonly TimeProvider _time;
     private readonly Func<string, PrefillRequest> _requestFor;
+    private readonly IReadOnlyList<IScheduleFiredListener> _listeners;
 
     // Occurrences in (_checkedUpTo, now] are due. Starts at construction so nothing is missed
     // between creating the Scheduler and its loop starting.
@@ -27,13 +28,15 @@ public sealed class Scheduler
         IEnumerable<Schedule> schedules,
         TimeZoneInfo timeZone,
         TimeProvider time,
-        Func<string, PrefillRequest> requestFor)
+        Func<string, PrefillRequest> requestFor,
+        IEnumerable<IScheduleFiredListener>? listeners = null)
     {
         _queue = queue;
         _schedules = [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
         _timeZone = timeZone;
         _time = time;
         _requestFor = requestFor;
+        _listeners = [.. listeners ?? []];
         _checkedUpTo = time.GetUtcNow();
     }
 
@@ -48,7 +51,7 @@ public sealed class Scheduler
         while (true)
         {
             var now = _time.GetUtcNow();
-            FireDue(now);
+            await FireDueAsync(now, stoppingToken);
 
             var next = NextOccurrenceAfter(now);
             var delay = next is null ? MaxWait : Min(next.Value - now, MaxWait);
@@ -59,27 +62,32 @@ public sealed class Scheduler
     // Task.Delay caps at ~49 days; waking up daily and recomputing is cheap and keeps it simple.
     private static readonly TimeSpan MaxWait = TimeSpan.FromDays(1);
 
-    private void FireDue(DateTimeOffset now)
+    private async Task FireDueAsync(DateTimeOffset now, CancellationToken ct)
     {
         foreach (var (schedule, cron) in _schedules)
         {
             var occurrence = cron.GetNextOccurrence(_checkedUpTo, _timeZone);
             if (occurrence is not null && occurrence <= now)
             {
-                Fire(schedule, now);
+                await FireAsync(schedule, now, ct);
             }
         }
         _checkedUpTo = now;
     }
 
-    private void Fire(Schedule schedule, DateTimeOffset at)
+    private async Task FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
     {
         var modules = schedule.ModuleIds
             .Select(moduleId => new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, _requestFor(moduleId), out var job) ? job : null))
             .ToList();
+        var firing = new ScheduleFiring(schedule.Name, at, modules);
         lock (_firingsLock)
         {
-            _firings.Add(new ScheduleFiring(schedule.Name, at, modules));
+            _firings.Add(firing);
+        }
+        foreach (var listener in _listeners)
+        {
+            await listener.OnScheduleFiredAsync(firing, ct);
         }
     }
 

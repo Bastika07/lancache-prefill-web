@@ -52,6 +52,34 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         ], record.Games);
     }
 
+    [Fact]
+    public async Task Schedule_firings_including_skipped_modules_are_kept_across_a_restart()
+    {
+        var db = await _fixture.OpenAsync();
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var queue = StartQueue(db, steam, epic);
+        var scheduler = new Scheduler(queue, [new Schedule("Nightly", "0 3 * * *", ["steam", "epic"])],
+            TimeZoneInfo.Utc, _fixture.Time, id => new PrefillRequest([id]), [db.JobHistory]);
+        _loops.Add(scheduler.RunAsync(_stop.Token));
+        queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        _fixture.Time.Advance(TimeSpan.FromHours(3));
+        await EventuallyAsync(async () => (await db.JobHistory.GetRecentFiringsAsync(10, Ct)).Count == 1);
+
+        var restarted = await _fixture.OpenAsync();
+        var firing = Assert.Single(await restarted.JobHistory.GetRecentFiringsAsync(10, Ct));
+
+        var inMemory = Assert.Single(scheduler.Firings);
+        Assert.Equal("Nightly", firing.ScheduleName);
+        Assert.Equal(_fixture.Time.GetUtcNow(), firing.At);
+        Assert.True(Assert.Single(firing.Modules, m => m.ModuleId == "steam").Skipped);
+        Assert.Equal(
+            inMemory.Modules.Single(m => m.ModuleId == "epic").Job!.Id,
+            Assert.Single(firing.Modules, m => m.ModuleId == "epic").JobId);
+    }
+
     private static Task Eventually(Func<bool> condition) => EventuallyAsync(() => Task.FromResult(condition()));
 
     private static async Task EventuallyAsync(Func<Task<bool>> condition)
