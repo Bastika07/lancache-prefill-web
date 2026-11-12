@@ -70,6 +70,32 @@ public sealed class SchedulerTests : IAsyncDisposable
         await Eventually(() => steam.Runs.Count == 1);
     }
 
+    [Fact]
+    public async Task A_module_that_already_has_a_queued_or_running_job_is_skipped_and_the_skip_is_recorded()
+    {
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var (queue, scheduler) = Start([steam, epic], [new Schedule("Nightly", "0 3 * * *", ["steam", "epic"])]);
+        var manual = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => scheduler.Firings.Count == 1);
+
+        var firing = scheduler.Firings[0];
+        Assert.Equal("Nightly", firing.ScheduleName);
+        Assert.Equal(_time.GetUtcNow(), firing.At);
+        var steamFiring = Assert.Single(firing.Modules, m => m.ModuleId == "steam");
+        var epicFiring = Assert.Single(firing.Modules, m => m.ModuleId == "epic");
+        Assert.Null(steamFiring.Job);
+        Assert.NotNull(epicFiring.Job);
+
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        await Eventually(() => epic.Runs.Count == 1);
+        Assert.Single(steam.Runs);
+        Assert.Equal(JobState.Succeeded, manual.State);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

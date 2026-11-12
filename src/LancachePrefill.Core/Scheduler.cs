@@ -19,6 +19,9 @@ public sealed class Scheduler
     // between creating the Scheduler and its loop starting.
     private DateTimeOffset _checkedUpTo;
 
+    private readonly Lock _firingsLock = new();
+    private readonly List<ScheduleFiring> _firings = [];
+
     public Scheduler(
         JobQueue queue,
         IEnumerable<Schedule> schedules,
@@ -32,6 +35,12 @@ public sealed class Scheduler
         _time = time;
         _requestFor = requestFor;
         _checkedUpTo = time.GetUtcNow();
+    }
+
+    /// <summary>Every firing since start, oldest first. Persisted history comes with the store (#5).</summary>
+    public IReadOnlyList<ScheduleFiring> Firings
+    {
+        get { lock (_firingsLock) { return [.. _firings]; } }
     }
 
     public async Task RunAsync(CancellationToken stoppingToken)
@@ -57,17 +66,20 @@ public sealed class Scheduler
             var occurrence = cron.GetNextOccurrence(_checkedUpTo, _timeZone);
             if (occurrence is not null && occurrence <= now)
             {
-                Fire(schedule);
+                Fire(schedule, now);
             }
         }
         _checkedUpTo = now;
     }
 
-    private void Fire(Schedule schedule)
+    private void Fire(Schedule schedule, DateTimeOffset at)
     {
-        foreach (var moduleId in schedule.ModuleIds)
+        var modules = schedule.ModuleIds
+            .Select(moduleId => new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, _requestFor(moduleId), out var job) ? job : null))
+            .ToList();
+        lock (_firingsLock)
         {
-            _queue.Enqueue(moduleId, _requestFor(moduleId));
+            _firings.Add(new ScheduleFiring(schedule.Name, at, modules));
         }
     }
 
