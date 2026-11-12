@@ -24,11 +24,13 @@ public sealed class PrefillDatabase : IAsyncDisposable
         Schedules = new ScheduleStore(CreateContext);
         JobHistory = new JobHistoryStore(CreateContext, settings.Time);
         AccountTokens = new AccountTokenStore(CreateContext, settings.DataProtection);
+        Settings = new SettingsStore(CreateContext);
     }
 
     public IScheduleStore Schedules { get; }
     public IJobHistoryStore JobHistory { get; }
     public IAccountTokenStore AccountTokens { get; }
+    public ISettingsStore Settings { get; }
 
     public static async Task<PrefillDatabase> OpenAsync(PrefillDatabaseOptions options, CancellationToken ct)
     {
