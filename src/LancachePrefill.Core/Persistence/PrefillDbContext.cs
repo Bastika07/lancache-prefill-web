@@ -1,10 +1,25 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace LancachePrefill.Core.Persistence;
 
 internal sealed class PrefillDbContext(DbContextOptions<PrefillDbContext> options) : DbContext(options)
 {
     public DbSet<ScheduleEntity> Schedules => Set<ScheduleEntity>();
+    public DbSet<JobRecordEntity> JobRecords => Set<JobRecordEntity>();
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // SQLite can't order or compare DateTimeOffset; store it as a sortable 64-bit value.
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
+        configurationBuilder.Properties<JobState>().HaveConversion<string>();
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<JobRecordEntity>().HasKey(e => e.JobId);
+        modelBuilder.Entity<JobRecordEntity>().HasIndex(e => e.FinishedAt);
+    }
 }
 
 internal sealed class ScheduleEntity

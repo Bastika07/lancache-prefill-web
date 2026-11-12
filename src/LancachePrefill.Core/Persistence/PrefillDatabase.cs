@@ -22,9 +22,11 @@ public sealed class PrefillDatabase : IAsyncDisposable
     {
         _options = options;
         Schedules = new ScheduleStore(CreateContext);
+        JobHistory = new JobHistoryStore(CreateContext);
     }
 
     public IScheduleStore Schedules { get; }
+    public IJobHistoryStore JobHistory { get; }
 
     public static async Task<PrefillDatabase> OpenAsync(PrefillDatabaseOptions options, CancellationToken ct)
     {
