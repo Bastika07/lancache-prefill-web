@@ -40,7 +40,10 @@ public sealed class PrefillDatabase : IAsyncDisposable
         var db = new PrefillDatabase(dbOptions, options);
 
         await using var context = db.CreateContext();
-        if (await context.Database.EnsureCreatedAsync(ct))
+        // Migrations (not EnsureCreated) so later schema changes upgrade the existing file in the volume.
+        var isNew = !(await context.Database.GetAppliedMigrationsAsync(ct)).Any();
+        await context.Database.MigrateAsync(ct);
+        if (isNew)
         {
             context.Schedules.Add(ScheduleEntity.From(Schedule.DefaultNightly(options.ModuleIds)));
             await context.SaveChangesAsync(ct);

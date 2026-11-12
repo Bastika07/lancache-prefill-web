@@ -7,6 +7,7 @@ Modular .NET 10 / Blazor Server web app that prefills a [Lancache](https://lanca
 - Build and test with `dotnet build` / `dotnet test` from the repo root (`LancachePrefill.slnx`).
 - Work test-first, at the seams listed in `docs/spec.md` → *Testing*. No live calls to Steam, Battle.net or Epic in tests.
 - Code ported from the upstream `tpill90/*-lancache-prefill` projects keeps a header comment naming its source file; see `NOTICE`.
+- Schema changes need an EF migration: `dotnet tool restore && dotnet ef migrations add <Name> -p src/LancachePrefill.Core -o Persistence/Migrations`. Never switch back to `EnsureCreated`.
 - No console UI libraries (Spectre.Console etc.) in ported code: report through `IProgress<T>` and `ILogger`.
 
 ## Agent skills

@@ -23,3 +23,8 @@ dotnet_diagnostic.CA1711.severity = none
 [tests/**.cs]
 # Test names read as sentences: Enqueued_job_runs_its_module_...
 dotnet_diagnostic.CA1707.severity = none
+
+[src/**/Migrations/*.cs]
+# EF Core generates these; don't hold them to hand-written code rules.
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
