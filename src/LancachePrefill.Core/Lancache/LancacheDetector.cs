@@ -8,7 +8,8 @@ namespace LancachePrefill.Core.Lancache;
 /// Order: <c>LANCACHE_IP</c> → IP from the settings → DNS detection (trigger domain, then local fallbacks),
 /// where a candidate counts only if it is a private IPv4 address that answers the Lancache heartbeat.
 /// </summary>
-public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? lancacheIpEnv)
+/// <param name="machineName">This machine's host name, last fallback; defaults to <see cref="Dns.GetHostName"/>.</param>
+public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? lancacheIpEnv, string? machineName = null)
 {
     /// <summary>Lancache DNS poisons this Steam domain; resolving it is the primary way to find the cache.</summary>
     public const string TriggerDomain = "lancache.steamcontent.com";
@@ -25,14 +26,31 @@ public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? 
             return new LancacheStatus.Found(IPAddress.Parse(settingsOverride), "settings");
         }
 
-        foreach (var ip in (await dns.ResolveAsync(TriggerDomain, ct)).Where(IsPrivateIPv4))
+        // Poisoned DNS first; then a Lancache on this machine, on the Docker host, or reachable by our own name.
+        string[] candidates = [TriggerDomain, "localhost", "172.17.0.1", machineName ?? Dns.GetHostName()];
+        foreach (var host in candidates)
         {
-            if (await AnswersHeartbeatAsync(ip, ct))
+            foreach (var ip in (await TryResolveAsync(host, ct)).Where(IsPrivateIPv4))
             {
-                return new LancacheStatus.Found(ip, TriggerDomain);
+                if (await AnswersHeartbeatAsync(ip, ct))
+                {
+                    return new LancacheStatus.Found(ip, host);
+                }
             }
         }
         return new LancacheStatus.NotFound($"No Lancache found via {TriggerDomain}.");
+    }
+
+    private async Task<IPAddress[]> TryResolveAsync(string host, CancellationToken ct)
+    {
+        try
+        {
+            return await dns.ResolveAsync(host, ct);
+        }
+        catch (SocketException)
+        {
+            return [];
+        }
     }
 
     private async Task<bool> AnswersHeartbeatAsync(IPAddress ip, CancellationToken ct)

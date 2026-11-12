@@ -48,5 +48,17 @@ public sealed class LancacheDetectorTests : IDisposable
         Assert.Equal(new LancacheStatus.Found(IPAddress.Parse("10.0.0.5"), "lancache.steamcontent.com"), status);
     }
 
+    [Fact]
+    public async Task When_the_trigger_domain_does_not_resolve_localhost_the_docker_host_and_the_machine_name_are_tried_in_that_order()
+    {
+        _dns.Add("localhost", "127.0.0.1").Add("172.17.0.1", "172.17.0.1").Add("prefill-box", "192.168.1.30");
+        _network.Lancache("172.17.0.1").Lancache("192.168.1.30");
+
+        var status = await new LancacheDetector(_dns, _http, lancacheIpEnv: null, machineName: "prefill-box").DetectAsync(null, Ct);
+
+        Assert.Equal(new LancacheStatus.Found(IPAddress.Parse("172.17.0.1"), "172.17.0.1"), status);
+        Assert.Equal(["lancache.steamcontent.com", "localhost", "172.17.0.1"], _dns.Lookups);
+    }
+
     public void Dispose() => _http.Dispose();
 }
