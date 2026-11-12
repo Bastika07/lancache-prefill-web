@@ -122,6 +122,16 @@ public sealed class JobQueueTests : IAsyncLifetime
         Assert.Equal(new PrefillProgress("Downloading", "440", BytesDone: 100, BytesTotal: 100), job.Progress);
     }
 
+    [Fact]
+    public void Enqueueing_for_an_unknown_module_is_rejected()
+    {
+        var queue = CreateQueue(new FakeModule("steam"));
+
+        var ex = Assert.Throws<ArgumentException>(() => queue.Enqueue("origin", new PrefillRequest(["x"])));
+
+        Assert.Contains("origin", ex.Message, StringComparison.Ordinal);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

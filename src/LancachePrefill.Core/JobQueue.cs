@@ -25,6 +25,10 @@ public sealed class JobQueue
 
     public Job Enqueue(string moduleId, PrefillRequest request)
     {
+        if (!_modules.ContainsKey(moduleId))
+        {
+            throw new ArgumentException($"No Module with id '{moduleId}' is registered.", nameof(moduleId));
+        }
         var job = new Job(moduleId, request);
         _jobs[job.Id] = job;
         _pending.Writer.TryWrite(job);
