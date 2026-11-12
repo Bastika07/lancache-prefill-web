@@ -46,5 +46,41 @@ public sealed class SteamLoginDialogTests : IDisposable
         Assert.Equal("Invalid username or password.", dialog.Find("[role=alert]").TextContent.Trim());
     }
 
+    [Fact]
+    public void When_steam_wants_an_authenticator_code_it_asks_for_it_and_submits_it()
+    {
+        var dialog = Render();
+        _login.SetState(new SteamLoginState.AwaitingCode(SteamGuardCodeKind.Authenticator));
+
+        dialog.WaitForAssertion(() => Assert.Contains("Steam Mobile app", dialog.Find("label[for=steam-code]").TextContent, StringComparison.Ordinal));
+        dialog.Find("#steam-code").Change("R2D2X");
+        dialog.Find("form#steam-guard").Submit();
+
+        Assert.Equal(["code:R2D2X"], _login.Calls);
+        Assert.Empty(dialog.FindAll("[role=alert]"));
+    }
+
+    [Fact]
+    public void For_an_email_code_it_names_the_address_and_says_when_the_last_code_was_wrong()
+    {
+        _login.SetState(new SteamLoginState.AwaitingCode(SteamGuardCodeKind.Email, EmailHint: "ga***@valvesoftware.com", PreviousCodeWasWrong: true));
+
+        var dialog = Render();
+
+        Assert.Contains("ga***@valvesoftware.com", dialog.Find("label[for=steam-code]").TextContent, StringComparison.Ordinal);
+        Assert.Contains("wrong", dialog.Find("[role=alert]").TextContent, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_login_waiting_for_a_code_can_be_cancelled()
+    {
+        _login.SetState(new SteamLoginState.AwaitingCode(SteamGuardCodeKind.Authenticator));
+        var dialog = Render();
+
+        dialog.Find("button#steam-cancel").Click();
+
+        Assert.Equal(["cancel"], _login.Calls);
+    }
+
     public void Dispose() => _ctx.Dispose();
 }

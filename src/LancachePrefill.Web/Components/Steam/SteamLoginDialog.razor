@@ -22,12 +22,30 @@
             <p>or</p>
             <button id="steam-qr-login" type="button" @onclick="StartQrAsync">Sign in with the Steam Mobile app (QR code)</button>
             break;
+
+        case SteamLoginState.AwaitingCode awaiting:
+            @if (awaiting.PreviousCodeWasWrong)
+            {
+                <p class="error" role="alert">That code was wrong. Please try again.</p>
+            }
+            <form id="steam-guard" @onsubmit="SubmitCodeAsync">
+                <label for="steam-code">
+                    @(awaiting.Kind == SteamGuardCodeKind.Email
+                        ? $"Steam Guard code sent to {awaiting.EmailHint ?? "your e-mail address"}"
+                        : "Steam Guard code from the Steam Mobile app")
+                </label>
+                <input id="steam-code" autocomplete="one-time-code" autocapitalize="characters" @bind="_code" />
+                <button type="submit">Continue</button>
+            </form>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
     }
 </section>
 
 @code {
     private string _username = "";
     private string _password = "";
+    private string _code = "";
 
     protected override void OnInitialized() => Login.StateChanged += OnStateChanged;
 
@@ -38,6 +56,13 @@
         var password = _password;
         _password = ""; // don't keep it around in the circuit
         await Login.StartCredentialsLoginAsync(_username, password, CancellationToken.None);
+    }
+
+    private async Task SubmitCodeAsync()
+    {
+        var code = _code.Trim();
+        _code = "";
+        await Login.SubmitCodeAsync(code);
     }
 
     private Task StartQrAsync() => Login.StartQrLoginAsync(CancellationToken.None);
