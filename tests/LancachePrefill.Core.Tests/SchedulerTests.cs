@@ -96,6 +96,44 @@ public sealed class SchedulerTests : IAsyncDisposable
         Assert.Equal(JobState.Succeeded, manual.State);
     }
 
+    [Fact]
+    public async Task Each_schedule_fires_only_its_own_modules_at_its_own_time()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var epic = new FakeModule("epic") { AutoComplete = true };
+        var (_, scheduler) = Start([steam, epic],
+        [
+            new Schedule("Steam nightly", "0 3 * * *", ["steam"]),
+            new Schedule("Epic mornings", "0 6 * * *", ["epic"]),
+        ]);
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => scheduler.Firings.Count == 1);
+        Assert.Single(steam.Runs);
+        Assert.Empty(epic.Runs);
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => scheduler.Firings.Count == 2);
+        await Eventually(() => epic.Runs.Count == 1);
+        Assert.Single(steam.Runs);
+        Assert.Equal(["Steam nightly", "Epic mornings"], scheduler.Firings.Select(f => f.ScheduleName));
+    }
+
+    [Fact]
+    public async Task The_default_schedule_prefills_every_given_module_at_three_in_the_night()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var epic = new FakeModule("epic") { AutoComplete = true };
+        Start([steam, epic], [Schedule.DefaultNightly(["steam", "epic"])]);
+
+        _time.Advance(TimeSpan.FromHours(3) - TimeSpan.FromSeconds(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Empty(steam.Runs);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await Eventually(() => steam.Runs.Count == 1 && epic.Runs.Count == 1);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

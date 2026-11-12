@@ -4,7 +4,11 @@ namespace LancachePrefill.Core;
 /// A cron expression plus the Modules it prefills. When it fires, each Module gets one
 /// update-only Job. See GLOSSARY.md → Schedule.
 /// </summary>
-public sealed record Schedule(string Name, string Cron, IReadOnlyList<string> ModuleIds);
+public sealed record Schedule(string Name, string Cron, IReadOnlyList<string> ModuleIds)
+{
+    /// <summary>The Schedule a fresh install starts with: every Module, nightly at 03:00 local time.</summary>
+    public static Schedule DefaultNightly(IReadOnlyList<string> moduleIds) => new("Nightly", "0 3 * * *", moduleIds);
+}
 
 /// <summary>One time a Schedule fired, and what happened per Module.</summary>
 public sealed record ScheduleFiring(string ScheduleName, DateTimeOffset At, IReadOnlyList<ModuleFiring> Modules);
