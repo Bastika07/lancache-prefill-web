@@ -8,6 +8,7 @@ internal sealed class PrefillDbContext(DbContextOptions<PrefillDbContext> option
     public DbSet<ScheduleEntity> Schedules => Set<ScheduleEntity>();
     public DbSet<JobRecordEntity> JobRecords => Set<JobRecordEntity>();
     public DbSet<FiringRecordEntity> FiringRecords => Set<FiringRecordEntity>();
+    public DbSet<AccountTokenEntity> AccountTokens => Set<AccountTokenEntity>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -21,6 +22,7 @@ internal sealed class PrefillDbContext(DbContextOptions<PrefillDbContext> option
         modelBuilder.Entity<JobRecordEntity>().HasKey(e => e.JobId);
         modelBuilder.Entity<JobRecordEntity>().HasIndex(e => e.FinishedAt);
         modelBuilder.Entity<FiringRecordEntity>().HasIndex(e => e.At);
+        modelBuilder.Entity<AccountTokenEntity>().HasKey(e => e.ModuleId);
     }
 }
 
