@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace LancachePrefill.Core;
@@ -10,6 +11,7 @@ public sealed class JobQueue
 {
     private readonly Dictionary<string, IPrefillModule> _modules;
     private readonly Channel<Job> _pending = Channel.CreateUnbounded<Job>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly ConcurrentDictionary<Guid, Job> _jobs = new();
 
     public JobQueue(IEnumerable<IPrefillModule> modules)
     {
@@ -19,15 +21,22 @@ public sealed class JobQueue
     public Job Enqueue(string moduleId, PrefillRequest request)
     {
         var job = new Job(moduleId, request);
+        _jobs[job.Id] = job;
         _pending.Writer.TryWrite(job);
         return job;
     }
+
+    /// <summary>Cancels a queued Job. Returns false if the Job is unknown or already past the queue.</summary>
+    public bool Cancel(Guid jobId) => _jobs.TryGetValue(jobId, out var job) && job.TryCancelQueued();
 
     public async Task RunAsync(CancellationToken stoppingToken)
     {
         await foreach (var job in _pending.Reader.ReadAllAsync(stoppingToken))
         {
-            job.MarkRunning();
+            if (!job.TryStart())
+            {
+                continue;
+            }
             var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new Progress<PrefillProgress>(), stoppingToken);
             job.MarkSucceeded(result);
         }

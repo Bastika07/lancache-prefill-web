@@ -30,6 +30,57 @@ public sealed class JobQueueTests : IAsyncLifetime
         Assert.Equal(["440"], Assert.Single(steam.Runs).Request.GameIds);
     }
 
+    [Fact]
+    public async Task Jobs_run_in_enqueue_order_and_never_two_at_once()
+    {
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var queue = CreateQueue(steam, epic);
+
+        var first = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var second = queue.Enqueue("epic", new PrefillRequest(["fortnite"]));
+
+        await Eventually(() => steam.Runs.Count == 1);
+        Assert.Equal(JobState.Running, first.State);
+        Assert.Equal(JobState.Queued, second.State);
+        Assert.Empty(epic.Runs);
+
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        await Eventually(() => epic.Runs.Count == 1);
+        Assert.Equal(JobState.Succeeded, first.State);
+        Assert.Equal(JobState.Running, second.State);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_queued_job_ends_it_as_cancelled_without_running_its_module()
+    {
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var queue = CreateQueue(steam, epic);
+        queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var queued = queue.Enqueue("epic", new PrefillRequest(["fortnite"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        Assert.True(queue.Cancel(queued.Id));
+        await queued.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        queue.Enqueue("epic", new PrefillRequest(["rocket-league"]));
+        await Eventually(() => epic.Runs.Count > 0);
+
+        Assert.Equal(JobState.Cancelled, queued.State);
+        Assert.Equal(["rocket-league"], Assert.Single(epic.Runs).Request.GameIds);
+    }
+
+    private static async Task Eventually(Func<bool> condition)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(Timeout);
+        while (!condition())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
     public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
     public async ValueTask DisposeAsync()
