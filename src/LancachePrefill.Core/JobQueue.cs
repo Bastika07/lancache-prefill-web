@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 
 namespace LancachePrefill.Core;
@@ -33,6 +34,24 @@ public sealed class JobQueue
         _jobs[job.Id] = job;
         _pending.Writer.TryWrite(job);
         return job;
+    }
+
+    /// <summary>
+    /// Enqueues a Job unless the Module already has a queued or running one (the Schedule skip rule).
+    /// Check and enqueue happen atomically.
+    /// </summary>
+    public bool TryEnqueue(string moduleId, PrefillRequest request, [NotNullWhen(true)] out Job? job)
+    {
+        lock (_gate)
+        {
+            if (_jobs.Values.Any(j => j.ModuleId == moduleId && j.State is JobState.Queued or JobState.Running))
+            {
+                job = null;
+                return false;
+            }
+            job = Enqueue(moduleId, request);
+            return true;
+        }
     }
 
     /// <summary>Cancels a queued or running Job. Returns false if the Job is unknown or already finished.</summary>
