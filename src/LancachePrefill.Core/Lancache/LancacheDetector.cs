@@ -14,6 +14,9 @@ public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? 
     /// <summary>Lancache DNS poisons this Steam domain; resolving it is the primary way to find the cache.</summary>
     public const string TriggerDomain = "lancache.steamcontent.com";
 
+    /// <summary>Name of the <see cref="HttpClient"/> used for heartbeat probes (short timeout).</summary>
+    public const string HttpClientName = "lancache-heartbeat";
+
     /// <param name="settingsOverride">The Lancache IP saved in the global settings, if any.</param>
     public async Task<LancacheStatus> DetectAsync(string? settingsOverride, CancellationToken ct)
     {

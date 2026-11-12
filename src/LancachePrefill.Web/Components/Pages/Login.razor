@@ -1,0 +1,40 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@inject AppConfiguration Config
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in · Lancache Prefill</PageTitle>
+
+<main class="login">
+    <h1>Lancache Prefill</h1>
+    <form method="post" @formname="login" @onsubmit="SignInAsync">
+        <AntiforgeryToken />
+        <label for="password">Admin password</label>
+        <input id="password" name="Password" type="password" autocomplete="current-password" autofocus required />
+        @if (_failed)
+        {
+            <p class="error" role="alert">Wrong password.</p>
+        }
+        <button type="submit">Sign in</button>
+    </form>
+</main>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private string? Password { get; set; }
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+    private bool _failed;
+
+    private async Task SignInAsync()
+    {
+        if (!AdminAuth.IsCorrect(Config, Password))
+        {
+            _failed = true;
+            HttpContext.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+        await AdminAuth.SignInAsync(HttpContext);
+        // Only local paths: never redirect off-site from a login form.
+        Navigation.NavigateTo(ReturnUrl is { } url && Uri.IsWellFormedUriString(url, UriKind.Relative) && url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal) ? url : "/");
+    }
+}
