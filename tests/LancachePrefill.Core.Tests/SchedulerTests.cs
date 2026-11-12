@@ -12,10 +12,12 @@ public sealed class SchedulerTests : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly List<Task> _loops = [];
 
-    private (JobQueue Queue, Scheduler Scheduler) Start(IPrefillModule[] modules, Schedule[] schedules, TimeZoneInfo? timeZone = null)
+    private (JobQueue Queue, Scheduler Scheduler) Start(
+        IPrefillModule[] modules, Schedule[] schedules, TimeZoneInfo? timeZone = null, IScheduleFiredListener[]? listeners = null)
     {
         var queue = new JobQueue(modules);
-        var scheduler = new Scheduler(queue, schedules, timeZone ?? TimeZoneInfo.Utc, _time, moduleId => new PrefillRequest([$"{moduleId}-selection"]));
+        var scheduler = new Scheduler(queue, schedules, timeZone ?? TimeZoneInfo.Utc, _time,
+            moduleId => new PrefillRequest([$"{moduleId}-selection"]), listeners);
         _loops.Add(queue.RunAsync(_stop.Token));
         _loops.Add(scheduler.RunAsync(_stop.Token));
         return (queue, scheduler);
@@ -132,6 +134,24 @@ public sealed class SchedulerTests : IAsyncDisposable
 
         _time.Advance(TimeSpan.FromSeconds(1));
         await Eventually(() => steam.Runs.Count == 1 && epic.Runs.Count == 1);
+    }
+
+    [Fact]
+    public async Task A_failing_firing_listener_does_not_stop_later_firings()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        Start([steam], [new Schedule("Nightly", "0 3 * * *", ["steam"])], listeners: [new ThrowingListener()]);
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => steam.Runs.Count == 1);
+        _time.Advance(TimeSpan.FromDays(1));
+        await Eventually(() => steam.Runs.Count == 2);
+    }
+
+    private sealed class ThrowingListener : IScheduleFiredListener
+    {
+        public Task OnScheduleFiredAsync(ScheduleFiring firing, CancellationToken ct) =>
+            throw new InvalidOperationException("database is locked");
     }
 
     private static async Task Eventually(Func<bool> condition)

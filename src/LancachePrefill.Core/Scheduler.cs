@@ -1,4 +1,6 @@
 using Cronos;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancachePrefill.Core;
 
@@ -7,7 +9,7 @@ namespace LancachePrefill.Core;
 /// their Jobs on the <see cref="JobQueue"/>. <see cref="RunAsync"/> is meant to be hosted by a
 /// background service; all waiting goes through the injected <see cref="TimeProvider"/>.
 /// </summary>
-public sealed class Scheduler
+public sealed partial class Scheduler
 {
     private readonly JobQueue _queue;
     private readonly IReadOnlyList<(Schedule Schedule, CronExpression Cron)> _schedules;
@@ -15,6 +17,7 @@ public sealed class Scheduler
     private readonly TimeProvider _time;
     private readonly Func<string, PrefillRequest> _requestFor;
     private readonly IReadOnlyList<IScheduleFiredListener> _listeners;
+    private readonly ILogger _logger;
 
     // Occurrences in (_checkedUpTo, now] are due. Starts at construction so nothing is missed
     // between creating the Scheduler and its loop starting.
@@ -29,7 +32,8 @@ public sealed class Scheduler
         TimeZoneInfo timeZone,
         TimeProvider time,
         Func<string, PrefillRequest> requestFor,
-        IEnumerable<IScheduleFiredListener>? listeners = null)
+        IEnumerable<IScheduleFiredListener>? listeners = null,
+        ILogger<Scheduler>? logger = null)
     {
         _queue = queue;
         _schedules = [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
@@ -37,6 +41,7 @@ public sealed class Scheduler
         _time = time;
         _requestFor = requestFor;
         _listeners = [.. listeners ?? []];
+        _logger = logger ?? NullLogger<Scheduler>.Instance;
         _checkedUpTo = time.GetUtcNow();
     }
 
@@ -87,7 +92,15 @@ public sealed class Scheduler
         }
         foreach (var listener in _listeners)
         {
-            await listener.OnScheduleFiredAsync(firing, ct);
+            try
+            {
+                await listener.OnScheduleFiredAsync(firing, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A failing listener (e.g. history store) must not stop future firings.
+                LogListenerFailed(_logger, ex, listener.GetType().Name, schedule.Name);
+            }
         }
     }
 
@@ -98,4 +111,7 @@ public sealed class Scheduler
             .Min();
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Schedule-fired listener {Listener} failed for Schedule {ScheduleName}")]
+    private static partial void LogListenerFailed(ILogger logger, Exception exception, string listener, string scheduleName);
 }
