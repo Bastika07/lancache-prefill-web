@@ -1,12 +1,17 @@
 using LancachePrefill.Core;
 using LancachePrefill.Core.Lancache;
 using LancachePrefill.Core.Persistence;
+using LancachePrefill.Modules.Steam;
 using LancachePrefill.Web;
 using LancachePrefill.Web.Components;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Every registered Module's id; used to seed the default Schedule without resolving the Modules
+// (they depend on the database themselves).
+string[] moduleIds = [SteamPrefillModule.ModuleId];
 var config = AppConfiguration.From(builder.Configuration);
 builder.Services.AddSingleton(config);
 
@@ -18,11 +23,25 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => PrefillDatabase.OpenAsync(
         new PrefillDatabaseOptions(
             Path.Combine(config.DataDir, "prefill.db"),
-            [.. sp.GetServices<IPrefillModule>().Select(m => m.Id)],
+            moduleIds,
             sp.GetRequiredService<IDataProtectionProvider>(),
             sp.GetRequiredService<TimeProvider>()),
         CancellationToken.None)
     .GetAwaiter().GetResult()); // once, at startup
+
+builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().Settings);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().AccountTokens);
+
+// Steam Module.
+builder.Services.AddSingleton<SteamKitSession>();
+builder.Services.AddSingleton<ISteamSession>(sp => sp.GetRequiredService<SteamKitSession>());
+builder.Services.AddSingleton<ISteamLogin>(sp => sp.GetRequiredService<SteamKitSession>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SteamKitSession>());
+builder.Services.AddSingleton<IDownloadedDepotStore, SettingsDownloadedDepotStore>();
+builder.Services.AddHttpClient(SteamChunkDownloader.HttpClientName, c => c.Timeout = TimeSpan.FromMinutes(2));
+builder.Services.AddSingleton(sp => new SteamChunkDownloader(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(SteamChunkDownloader.HttpClientName)));
+builder.Services.AddSingleton<IPrefillModule, SteamPrefillModule>();
 
 // Jobs and Schedules.
 builder.Services.AddSingleton(sp => new JobQueue(
