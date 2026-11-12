@@ -69,7 +69,7 @@ public sealed class JobQueue
             }
             try
             {
-                var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new Progress<PrefillProgress>(), cancellation.Token);
+                var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new JobProgress(job), cancellation.Token);
                 job.MarkSucceeded(result);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -91,5 +91,14 @@ public sealed class JobQueue
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Writes progress straight onto the Job. Unlike <see cref="Progress{T}"/> it reports
+    /// synchronously, so reports cannot arrive out of order.
+    /// </summary>
+    private sealed class JobProgress(Job job) : IProgress<PrefillProgress>
+    {
+        public void Report(PrefillProgress value) => job.ReportProgress(value);
     }
 }

@@ -28,6 +28,12 @@ public sealed class Job
     public PrefillResult? Result { get; private set; }
     public string? FailureReason { get; private set; }
 
+    /// <summary>Latest progress reported by the Module; null until the first report.</summary>
+    public PrefillProgress? Progress => Volatile.Read(ref _progress);
+    private PrefillProgress? _progress;
+
+    internal void ReportProgress(PrefillProgress progress) => Volatile.Write(ref _progress, progress);
+
     /// <summary>Completes when the Job reaches a final state; never faults.</summary>
     public Task Completion => _completion.Task;
 
