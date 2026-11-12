@@ -82,5 +82,54 @@ public sealed class SteamLoginDialogTests : IDisposable
         Assert.Equal(["cancel"], _login.Calls);
     }
 
+    [Fact]
+    public void While_waiting_for_approval_in_the_app_it_says_so_and_can_be_cancelled()
+    {
+        _login.SetState(new SteamLoginState.AwaitingDeviceConfirmation());
+        var dialog = Render();
+
+        Assert.Contains("Steam Mobile app", dialog.Find("[role=status]").TextContent, StringComparison.Ordinal);
+        dialog.Find("button#steam-cancel").Click();
+
+        Assert.Equal(["cancel"], _login.Calls);
+    }
+
+    [Fact]
+    public void While_connecting_it_shows_progress_and_no_form()
+    {
+        _login.SetState(new SteamLoginState.Connecting());
+
+        var dialog = Render();
+
+        Assert.Contains("Connecting", dialog.Find("[role=status]").TextContent, StringComparison.Ordinal);
+        Assert.Empty(dialog.FindAll("form"));
+    }
+
+    [Fact]
+    public void The_qr_code_encodes_the_current_challenge_and_follows_when_steam_rotates_it()
+    {
+        _login.SetState(new SteamLoginState.ShowingQrCode("https://s.team/q/1/1111"));
+        var dialog = Render();
+        var first = dialog.Find("#steam-qr").GetAttribute("data-challenge");
+
+        _login.SetState(new SteamLoginState.ShowingQrCode("https://s.team/q/1/2222"));
+
+        Assert.Equal("https://s.team/q/1/1111", first);
+        dialog.WaitForAssertion(() => Assert.Equal("https://s.team/q/1/2222", dialog.Find("#steam-qr").GetAttribute("data-challenge")));
+        Assert.NotNull(dialog.Find("#steam-qr svg"));
+    }
+
+    [Fact]
+    public void Signed_in_it_shows_the_account_and_can_sign_out()
+    {
+        _login.SetState(new SteamLoginState.SignedIn("gaben"));
+        var dialog = Render();
+
+        Assert.Contains("gaben", dialog.Find("[data-testid=steam-account]").TextContent, StringComparison.Ordinal);
+        dialog.Find("button#steam-sign-out").Click();
+
+        Assert.Equal(["signout"], _login.Calls);
+    }
+
     public void Dispose() => _ctx.Dispose();
 }

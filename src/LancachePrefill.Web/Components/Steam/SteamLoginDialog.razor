@@ -1,4 +1,5 @@
 @using LancachePrefill.Modules.Steam
+@using QRCoder
 @implements IDisposable
 @inject ISteamLogin Login
 
@@ -39,6 +40,26 @@
             </form>
             <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
             break;
+
+        case SteamLoginState.Connecting:
+            <p role="status">Connecting to Steam…</p>
+            break;
+
+        case SteamLoginState.AwaitingDeviceConfirmation:
+            <p role="status">Approve this sign-in in the Steam Mobile app.</p>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
+
+        case SteamLoginState.ShowingQrCode qr:
+            <p role="status">Scan this code with the Steam Mobile app.</p>
+            <div id="steam-qr" data-challenge="@qr.ChallengeUrl">@QrSvg(qr.ChallengeUrl)</div>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
+
+        case SteamLoginState.SignedIn signedIn:
+            <p data-testid="steam-account">Signed in as <strong>@signedIn.AccountName</strong>.</p>
+            <button id="steam-sign-out" type="button" @onclick="SignOutAsync">Sign out</button>
+            break;
     }
 </section>
 
@@ -63,6 +84,15 @@
         var code = _code.Trim();
         _code = "";
         await Login.SubmitCodeAsync(code);
+    }
+
+    private Task SignOutAsync() => Login.SignOutAsync(CancellationToken.None);
+
+    private static MarkupString QrSvg(string content)
+    {
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(content, QRCodeGenerator.ECCLevel.M);
+        return new MarkupString(new SvgQRCode(data).GetGraphic(6));
     }
 
     private Task StartQrAsync() => Login.StartQrLoginAsync(CancellationToken.None);
