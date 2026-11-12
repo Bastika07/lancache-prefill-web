@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancachePrefill.Core;
 
@@ -8,20 +10,30 @@ namespace LancachePrefill.Core;
 /// The single global FIFO of Jobs across all Modules; at most one Job runs at a time (ADR 0004).
 /// <see cref="RunAsync"/> is the processing loop and is meant to be hosted by a background service.
 /// </summary>
-public sealed class JobQueue
+public sealed partial class JobQueue
 {
     private readonly Dictionary<string, IPrefillModule> _modules;
     private readonly Channel<Job> _pending = Channel.CreateUnbounded<Job>(new UnboundedChannelOptions { SingleReader = true });
     private readonly ConcurrentDictionary<Guid, Job> _jobs = new();
+    private readonly TimeProvider _time;
+    private readonly IReadOnlyList<IJobFinishedListener> _listeners;
+    private readonly ILogger _logger;
 
     // Guards the hand-over from "queued" to "running" so Cancel never misses a Job in between.
     private readonly Lock _gate = new();
     private Job? _runningJob;
     private CancellationTokenSource? _runningCancellation;
 
-    public JobQueue(IEnumerable<IPrefillModule> modules)
+    public JobQueue(
+        IEnumerable<IPrefillModule> modules,
+        TimeProvider? time = null,
+        IEnumerable<IJobFinishedListener>? listeners = null,
+        ILogger<JobQueue>? logger = null)
     {
         _modules = modules.ToDictionary(m => m.Id);
+        _time = time ?? TimeProvider.System;
+        _listeners = [.. listeners ?? []];
+        _logger = logger ?? NullLogger<JobQueue>.Instance;
     }
 
     public Job Enqueue(string moduleId, PrefillRequest request)
@@ -30,7 +42,7 @@ public sealed class JobQueue
         {
             throw new ArgumentException($"No Module with id '{moduleId}' is registered.", nameof(moduleId));
         }
-        var job = new Job(moduleId, request);
+        var job = new Job(moduleId, request, _time.GetUtcNow());
         _jobs[job.Id] = job;
         _pending.Writer.TryWrite(job);
         return job;
@@ -63,7 +75,7 @@ public sealed class JobQueue
         }
         lock (_gate)
         {
-            if (job.TryCancelQueued())
+            if (job.TryCancelQueued(_time.GetUtcNow()))
             {
                 return true;
             }
@@ -81,29 +93,41 @@ public sealed class JobQueue
         await foreach (var job in _pending.Reader.ReadAllAsync(stoppingToken))
         {
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            bool startedHere;
             lock (_gate)
             {
-                if (!job.TryStart())
+                startedHere = job.TryStart(_time.GetUtcNow());
+                if (startedHere)
                 {
-                    continue;
+                    _runningJob = job;
+                    _runningCancellation = cancellation;
                 }
-                _runningJob = job;
-                _runningCancellation = cancellation;
+            }
+            if (!startedHere)
+            {
+                // Cancelled while queued: it already finished in Cancel(); report it now, in queue order.
+                await NotifyFinishedAsync(job, stoppingToken);
+                continue;
             }
             try
             {
                 var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new JobProgress(job), cancellation.Token);
-                job.MarkSucceeded(result);
+                job.MarkSucceeded(result, _time.GetUtcNow());
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
-                job.MarkCancelled();
-                stoppingToken.ThrowIfCancellationRequested();
+                job.MarkCancelled(_time.GetUtcNow());
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    // Shutting down: still record the Job; CancellationToken.None so the write itself isn't cancelled.
+                    await NotifyFinishedAsync(job, CancellationToken.None);
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 // A broken Module must not stall the Job queue for every other Module.
-                job.MarkFailed(ex.Message);
+                job.MarkFailed(ex.Message, _time.GetUtcNow());
             }
             finally
             {
@@ -113,8 +137,28 @@ public sealed class JobQueue
                     _runningCancellation = null;
                 }
             }
+            await NotifyFinishedAsync(job, stoppingToken);
         }
     }
+
+    private async Task NotifyFinishedAsync(Job job, CancellationToken ct)
+    {
+        foreach (var listener in _listeners)
+        {
+            try
+            {
+                await listener.OnJobFinishedAsync(job, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A failing listener (e.g. history store) must not stop the Job queue.
+                LogListenerFailed(_logger, ex, listener.GetType().Name, job.Id);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Job-finished listener {Listener} failed for Job {JobId}")]
+    private static partial void LogListenerFailed(ILogger logger, Exception exception, string listener, Guid jobId);
 
     /// <summary>
     /// Writes progress straight onto the Job. Unlike <see cref="Progress{T}"/> it reports

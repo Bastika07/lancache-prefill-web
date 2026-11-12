@@ -15,16 +15,20 @@ public sealed class Job
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Lock _lock = new();
 
-    internal Job(string moduleId, PrefillRequest request)
+    internal Job(string moduleId, PrefillRequest request, DateTimeOffset enqueuedAt)
     {
         ModuleId = moduleId;
         Request = request;
+        EnqueuedAt = enqueuedAt;
     }
 
     public Guid Id { get; } = Guid.NewGuid();
     public string ModuleId { get; }
     public PrefillRequest Request { get; }
     public JobState State { get; private set; } = JobState.Queued;
+    public DateTimeOffset EnqueuedAt { get; }
+    public DateTimeOffset? StartedAt { get; private set; }
+    public DateTimeOffset? FinishedAt { get; private set; }
     public PrefillResult? Result { get; private set; }
     public string? FailureReason { get; private set; }
 
@@ -38,7 +42,7 @@ public sealed class Job
     public Task Completion => _completion.Task;
 
     /// <summary>Moves a queued Job to Running; false if it was cancelled meanwhile.</summary>
-    internal bool TryStart()
+    internal bool TryStart(DateTimeOffset now)
     {
         lock (_lock)
         {
@@ -47,12 +51,13 @@ public sealed class Job
                 return false;
             }
             State = JobState.Running;
+            StartedAt = now;
             return true;
         }
     }
 
     /// <summary>Cancels a Job that has not started yet.</summary>
-    internal bool TryCancelQueued()
+    internal bool TryCancelQueued(DateTimeOffset now)
     {
         lock (_lock)
         {
@@ -60,40 +65,41 @@ public sealed class Job
             {
                 return false;
             }
-            Finish(JobState.Cancelled);
+            Finish(JobState.Cancelled, now);
             return true;
         }
     }
 
-    internal void MarkCancelled()
+    internal void MarkCancelled(DateTimeOffset now)
     {
         lock (_lock)
         {
-            Finish(JobState.Cancelled);
+            Finish(JobState.Cancelled, now);
         }
     }
 
-    internal void MarkFailed(string reason)
+    internal void MarkFailed(string reason, DateTimeOffset now)
     {
         lock (_lock)
         {
             FailureReason = reason;
-            Finish(JobState.Failed);
+            Finish(JobState.Failed, now);
         }
     }
 
-    internal void MarkSucceeded(PrefillResult result)
+    internal void MarkSucceeded(PrefillResult result, DateTimeOffset now)
     {
         lock (_lock)
         {
             Result = result;
-            Finish(JobState.Succeeded);
+            Finish(JobState.Succeeded, now);
         }
     }
 
-    private void Finish(JobState state)
+    private void Finish(JobState state, DateTimeOffset now)
     {
         State = state;
+        FinishedAt = now;
         _completion.TrySetResult();
     }
 }

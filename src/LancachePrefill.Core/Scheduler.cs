@@ -1,4 +1,6 @@
 using Cronos;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancachePrefill.Core;
 
@@ -7,13 +9,15 @@ namespace LancachePrefill.Core;
 /// their Jobs on the <see cref="JobQueue"/>. <see cref="RunAsync"/> is meant to be hosted by a
 /// background service; all waiting goes through the injected <see cref="TimeProvider"/>.
 /// </summary>
-public sealed class Scheduler
+public sealed partial class Scheduler
 {
     private readonly JobQueue _queue;
     private readonly IReadOnlyList<(Schedule Schedule, CronExpression Cron)> _schedules;
     private readonly TimeZoneInfo _timeZone;
     private readonly TimeProvider _time;
     private readonly Func<string, PrefillRequest> _requestFor;
+    private readonly IReadOnlyList<IScheduleFiredListener> _listeners;
+    private readonly ILogger _logger;
 
     // Occurrences in (_checkedUpTo, now] are due. Starts at construction so nothing is missed
     // between creating the Scheduler and its loop starting.
@@ -27,13 +31,17 @@ public sealed class Scheduler
         IEnumerable<Schedule> schedules,
         TimeZoneInfo timeZone,
         TimeProvider time,
-        Func<string, PrefillRequest> requestFor)
+        Func<string, PrefillRequest> requestFor,
+        IEnumerable<IScheduleFiredListener>? listeners = null,
+        ILogger<Scheduler>? logger = null)
     {
         _queue = queue;
         _schedules = [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
         _timeZone = timeZone;
         _time = time;
         _requestFor = requestFor;
+        _listeners = [.. listeners ?? []];
+        _logger = logger ?? NullLogger<Scheduler>.Instance;
         _checkedUpTo = time.GetUtcNow();
     }
 
@@ -48,7 +56,7 @@ public sealed class Scheduler
         while (true)
         {
             var now = _time.GetUtcNow();
-            FireDue(now);
+            await FireDueAsync(now, stoppingToken);
 
             var next = NextOccurrenceAfter(now);
             var delay = next is null ? MaxWait : Min(next.Value - now, MaxWait);
@@ -59,27 +67,40 @@ public sealed class Scheduler
     // Task.Delay caps at ~49 days; waking up daily and recomputing is cheap and keeps it simple.
     private static readonly TimeSpan MaxWait = TimeSpan.FromDays(1);
 
-    private void FireDue(DateTimeOffset now)
+    private async Task FireDueAsync(DateTimeOffset now, CancellationToken ct)
     {
         foreach (var (schedule, cron) in _schedules)
         {
             var occurrence = cron.GetNextOccurrence(_checkedUpTo, _timeZone);
             if (occurrence is not null && occurrence <= now)
             {
-                Fire(schedule, now);
+                await FireAsync(schedule, now, ct);
             }
         }
         _checkedUpTo = now;
     }
 
-    private void Fire(Schedule schedule, DateTimeOffset at)
+    private async Task FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
     {
         var modules = schedule.ModuleIds
             .Select(moduleId => new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, _requestFor(moduleId), out var job) ? job : null))
             .ToList();
+        var firing = new ScheduleFiring(schedule.Name, at, modules);
         lock (_firingsLock)
         {
-            _firings.Add(new ScheduleFiring(schedule.Name, at, modules));
+            _firings.Add(firing);
+        }
+        foreach (var listener in _listeners)
+        {
+            try
+            {
+                await listener.OnScheduleFiredAsync(firing, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A failing listener (e.g. history store) must not stop future firings.
+                LogListenerFailed(_logger, ex, listener.GetType().Name, schedule.Name);
+            }
         }
     }
 
@@ -90,4 +111,7 @@ public sealed class Scheduler
             .Min();
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Schedule-fired listener {Listener} failed for Schedule {ScheduleName}")]
+    private static partial void LogListenerFailed(ILogger logger, Exception exception, string listener, string scheduleName);
 }
