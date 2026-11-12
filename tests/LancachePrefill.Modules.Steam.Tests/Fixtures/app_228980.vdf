@@ -1,0 +1,8 @@
+"228980"
+{
+	"common" { "name" "Steamworks Common Redistributables" "type" "Tool" }
+	"depots"
+	{
+		"228986" { "name" "VC 2015 Redist" "manifests" { "public" { "gid" "7986" } } }
+	}
+}

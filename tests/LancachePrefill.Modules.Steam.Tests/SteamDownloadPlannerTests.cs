@@ -23,11 +23,21 @@ public sealed class SteamDownloadPlannerTests
         var plan = await PlanExampleGameAsync(SteamSettings.Default);
 
         // 1003/1004 other OS, 1005 German, 1006 low violence, 1007 32-bit, 1009 unlicensed,
-        // 1201 unowned DLC, 228986 excluded redistributable.
+        // 1011 + 1201 unowned DLC, 228986 excluded redistributable (owned, but on the exclusion list).
         Assert.Equal<uint>([1001, 1002, 1008, 1010, 1101], [.. plan.Depots.Select(d => d.DepotId).Order()]);
     }
 
     private static uint[] DepotIds(SteamAppPlan plan) => [.. plan.Depots.Select(d => d.DepotId).Order()];
+
+    [Fact]
+    public async Task A_dlc_depot_listed_in_the_base_game_is_prefilled_only_when_the_dlc_is_owned()
+    {
+        _steam.OwnedApps.Add(1200);
+
+        var plan = await PlanExampleGameAsync(SteamSettings.Default);
+
+        Assert.Contains(1011u, DepotIds(plan));
+    }
 
     [Fact]
     public async Task Several_operating_systems_prefill_the_union_of_their_depots()

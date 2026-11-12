@@ -13,7 +13,7 @@ internal sealed class FakeSteamSession : ISteamSession
     private static readonly string FixtureDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
     private readonly Dictionary<(uint Depot, ulong Manifest), SteamManifest> _manifests = [];
 
-    public HashSet<uint> OwnedApps { get; } = [1000, 1100, 2000, 3000, 3100, 3200, 3300, 480];
+    public HashSet<uint> OwnedApps { get; } = [1000, 1100, 2000, 3000, 3100, 3200, 3300, 480, 228980];
     public HashSet<uint> UnownedDepots { get; } = [1009, 1201];
     public List<(uint Depot, ulong Manifest)> ManifestDownloads { get; } = [];
 

@@ -75,6 +75,12 @@
 			"config" { "language" "english" }
 			"manifests" { "public" "5010" }
 		}
+		"1011"
+		{
+			"name"		"Expansion Content (listed in base game)"
+			"dlcappid"		"1200"
+			"manifests" { "public" { "gid" "5011" } }
+		}
 		"228986"
 		{
 			"name"		"VC 2015 Redist"
