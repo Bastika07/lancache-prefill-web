@@ -77,6 +77,11 @@ public sealed class JobQueue
                 job.MarkCancelled();
                 stoppingToken.ThrowIfCancellationRequested();
             }
+            catch (Exception ex)
+            {
+                // A broken Module must not stall the Job queue for every other Module.
+                job.MarkFailed(ex.Message);
+            }
             finally
             {
                 lock (_gate)

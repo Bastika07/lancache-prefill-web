@@ -26,6 +26,7 @@ public sealed class Job
     public PrefillRequest Request { get; }
     public JobState State { get; private set; } = JobState.Queued;
     public PrefillResult? Result { get; private set; }
+    public string? FailureReason { get; private set; }
 
     /// <summary>Completes when the Job reaches a final state; never faults.</summary>
     public Task Completion => _completion.Task;
@@ -63,6 +64,15 @@ public sealed class Job
         lock (_lock)
         {
             Finish(JobState.Cancelled);
+        }
+    }
+
+    internal void MarkFailed(string reason)
+    {
+        lock (_lock)
+        {
+            FailureReason = reason;
+            Finish(JobState.Failed);
         }
     }
 

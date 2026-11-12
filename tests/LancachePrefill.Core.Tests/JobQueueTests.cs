@@ -89,6 +89,23 @@ public sealed class JobQueueTests : IAsyncLifetime
         Assert.Equal(["570"], steam.Runs[1].Request.GameIds);
     }
 
+    [Fact]
+    public async Task A_module_exception_fails_the_job_with_its_message_and_the_queue_moves_on()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var failing = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        queue.Enqueue("steam", new PrefillRequest(["570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Fail(new InvalidOperationException("Steam login expired"));
+        await failing.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        await Eventually(() => steam.Runs.Count == 2);
+
+        Assert.Equal(JobState.Failed, failing.State);
+        Assert.Equal("Steam login expired", failing.FailureReason);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
