@@ -1,0 +1,38 @@
+@using LancachePrefill.Modules.Steam
+@implements IDisposable
+@inject ISteamLogin Login
+
+<section class="steam-login" aria-labelledby="steam-login-heading">
+    <h2 id="steam-login-heading">Steam account</h2>
+
+    @switch (Login.State)
+    {
+        case SteamLoginState.SignedOut signedOut:
+            <form id="steam-credentials" @onsubmit="StartCredentialsAsync">
+                <label for="steam-username">Steam username</label>
+                <input id="steam-username" autocomplete="username" @bind="_username" />
+                <label for="steam-password">Password</label>
+                <input id="steam-password" type="password" autocomplete="current-password" @bind="_password" />
+                <button type="submit">Sign in</button>
+            </form>
+            break;
+    }
+</section>
+
+@code {
+    private string _username = "";
+    private string _password = "";
+
+    protected override void OnInitialized() => Login.StateChanged += OnStateChanged;
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task StartCredentialsAsync()
+    {
+        var password = _password;
+        _password = ""; // don't keep it around in the circuit
+        await Login.StartCredentialsLoginAsync(_username, password, CancellationToken.None);
+    }
+
+    public void Dispose() => Login.StateChanged -= OnStateChanged;
+}
