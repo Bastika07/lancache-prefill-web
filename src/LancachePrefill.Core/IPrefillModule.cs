@@ -29,4 +29,7 @@ public enum GameOutcomeStatus
     UpToDate,
     Downloaded,
     Failed,
+
+    /// <summary>Nothing to do by design, e.g. not a prefillable game or every depot filtered out. Reason in FailureReason.</summary>
+    Skipped,
 }
