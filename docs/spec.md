@@ -10,7 +10,7 @@ One self-hosted web app replacing the three CLIs (`steam-`, `battlenet-`, `epic-
 
 - Single Docker container on the LAN next to the Lancache; one admin.
 - UI protected by an admin password (`ADMIN_PASSWORD` env var, cookie login).
-- State in one SQLite database (EF Core) in a mounted volume. Account tokens encrypted with ASP.NET Core Data Protection; key ring in the same volume.
+- State in one SQLite database (EF Core) in a mounted volume (`DATA_DIR`, default `/data`). Account tokens encrypted with ASP.NET Core Data Protection; key ring in the same volume.
 - Lancache detected via LAN DNS as the upstream tools do; `LANCACHE_IP` overrides detection. The UI shows the detected Lancache and warns loudly when none is found.
 - Logging: built-in .NET logging to stdout; each Job's log is also viewable in the UI.
 - CI: GitHub Actions builds, tests and publishes a multi-arch (amd64 + arm64) image to `ghcr.io/bastika07/lancache-prefill-web`; a sample `docker-compose.yml` ships in the repo.
