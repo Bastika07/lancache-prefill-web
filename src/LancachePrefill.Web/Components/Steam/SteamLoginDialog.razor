@@ -8,6 +8,10 @@
     @switch (Login.State)
     {
         case SteamLoginState.SignedOut signedOut:
+            @if (signedOut.Error is { } error)
+            {
+                <p class="error" role="alert">@error</p>
+            }
             <form id="steam-credentials" @onsubmit="StartCredentialsAsync">
                 <label for="steam-username">Steam username</label>
                 <input id="steam-username" autocomplete="username" @bind="_username" />
@@ -15,6 +19,8 @@
                 <input id="steam-password" type="password" autocomplete="current-password" @bind="_password" />
                 <button type="submit">Sign in</button>
             </form>
+            <p>or</p>
+            <button id="steam-qr-login" type="button" @onclick="StartQrAsync">Sign in with the Steam Mobile app (QR code)</button>
             break;
     }
 </section>
@@ -33,6 +39,8 @@
         _password = ""; // don't keep it around in the circuit
         await Login.StartCredentialsLoginAsync(_username, password, CancellationToken.None);
     }
+
+    private Task StartQrAsync() => Login.StartQrLoginAsync(CancellationToken.None);
 
     public void Dispose() => Login.StateChanged -= OnStateChanged;
 }

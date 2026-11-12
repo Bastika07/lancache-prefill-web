@@ -26,5 +26,25 @@ public sealed class SteamLoginDialogTests : IDisposable
         Assert.Equal(["credentials:gaben:hunter2"], _login.Calls);
     }
 
+    [Fact]
+    public void Signed_out_it_offers_the_qr_code_login()
+    {
+        var dialog = Render();
+
+        dialog.Find("button#steam-qr-login").Click();
+
+        Assert.Equal(["qr"], _login.Calls);
+    }
+
+    [Fact]
+    public void After_a_failed_attempt_it_shows_why()
+    {
+        _login.SetState(new SteamLoginState.SignedOut("Invalid username or password."));
+
+        var dialog = Render();
+
+        Assert.Equal("Invalid username or password.", dialog.Find("[role=alert]").TextContent.Trim());
+    }
+
     public void Dispose() => _ctx.Dispose();
 }
