@@ -28,9 +28,15 @@ public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? 
 
         // Poisoned DNS first; then a Lancache on this machine, on the Docker host, or reachable by our own name.
         string[] candidates = [TriggerDomain, "localhost", "172.17.0.1", machineName ?? Dns.GetHostName()];
+        IPAddress[] triggerIps = [];
         foreach (var host in candidates)
         {
-            foreach (var ip in (await TryResolveAsync(host, ct)).Where(IsPrivateIPv4))
+            var ips = await TryResolveAsync(host, ct);
+            if (host == TriggerDomain)
+            {
+                triggerIps = ips;
+            }
+            foreach (var ip in ips.Where(IsPrivateIPv4))
             {
                 if (await AnswersHeartbeatAsync(ip, ct))
                 {
@@ -38,7 +44,24 @@ public sealed class LancacheDetector(IDnsResolver dns, HttpClient http, string? 
                 }
             }
         }
-        return new LancacheStatus.NotFound($"No Lancache found via {TriggerDomain}.");
+        return new LancacheStatus.NotFound(Diagnose(triggerIps));
+    }
+
+    /// <summary>Explains the usual misconfigurations, judged by what the trigger domain resolved to.</summary>
+    private static string Diagnose(IPAddress[] triggerIps)
+    {
+        var ipv4 = triggerIps.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork).ToArray();
+        if (ipv4.Length == 0)
+        {
+            return $"{TriggerDomain} does not resolve. Check that this container uses the Lancache DNS, or set LANCACHE_IP.";
+        }
+        if (!ipv4.Any(IsPrivateIPv4))
+        {
+            return $"{TriggerDomain} resolves to the public IP {ipv4[0]}: Lancache DNS is not in use here, "
+                 + "so prefills would download from the internet instead of filling the cache.";
+        }
+        var privateIps = string.Join(", ", ipv4.Where(IsPrivateIPv4));
+        return $"{TriggerDomain} resolves to {privateIps}, but no Lancache answered there. Is the Lancache not running?";
     }
 
     private async Task<IPAddress[]> TryResolveAsync(string host, CancellationToken ct)

@@ -60,5 +60,30 @@ public sealed class LancacheDetectorTests : IDisposable
         Assert.Equal(["lancache.steamcontent.com", "localhost", "172.17.0.1"], _dns.Lookups);
     }
 
+    [Fact]
+    public async Task A_trigger_domain_resolving_to_a_public_ip_is_reported_as_lancache_dns_not_being_used()
+    {
+        _dns.Add("lancache.steamcontent.com", "23.45.67.89");
+
+        var status = await Detector().DetectAsync(null, Ct);
+
+        var notFound = Assert.IsType<LancacheStatus.NotFound>(status);
+        Assert.Contains("23.45.67.89", notFound.Reason, StringComparison.Ordinal);
+        Assert.Contains("public", notFound.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_private_ip_without_a_lancache_behind_it_is_reported_as_lancache_not_running()
+    {
+        _dns.Add("lancache.steamcontent.com", "10.0.0.5");
+        _network.PlainWebServer("10.0.0.5");
+
+        var status = await Detector().DetectAsync(null, Ct);
+
+        var notFound = Assert.IsType<LancacheStatus.NotFound>(status);
+        Assert.Contains("10.0.0.5", notFound.Reason, StringComparison.Ordinal);
+        Assert.Contains("not running", notFound.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose() => _http.Dispose();
 }
