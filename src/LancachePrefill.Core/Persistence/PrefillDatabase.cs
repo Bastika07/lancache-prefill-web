@@ -18,11 +18,11 @@ public sealed class PrefillDatabase : IAsyncDisposable
 {
     private readonly DbContextOptions<PrefillDbContext> _options;
 
-    private PrefillDatabase(DbContextOptions<PrefillDbContext> options)
+    private PrefillDatabase(DbContextOptions<PrefillDbContext> options, PrefillDatabaseOptions settings)
     {
         _options = options;
         Schedules = new ScheduleStore(CreateContext);
-        JobHistory = new JobHistoryStore(CreateContext);
+        JobHistory = new JobHistoryStore(CreateContext, settings.Time);
     }
 
     public IScheduleStore Schedules { get; }
@@ -33,7 +33,7 @@ public sealed class PrefillDatabase : IAsyncDisposable
         var dbOptions = new DbContextOptionsBuilder<PrefillDbContext>()
             .UseSqlite($"Data Source={options.Path}")
             .Options;
-        var db = new PrefillDatabase(dbOptions);
+        var db = new PrefillDatabase(dbOptions, options);
 
         await using var context = db.CreateContext();
         if (await context.Database.EnsureCreatedAsync(ct))

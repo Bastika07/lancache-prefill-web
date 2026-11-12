@@ -40,10 +40,21 @@ public interface IJobHistoryStore : IJobFinishedListener, IScheduleFiredListener
 
     /// <summary>Most recent first.</summary>
     Task<IReadOnlyList<FiringRecord>> GetRecentFiringsAsync(int limit, CancellationToken ct);
+
+    /// <summary>Deletes Jobs and firings older than <paramref name="retention"/> (spec: default 90 days).</summary>
+    Task PruneAsync(TimeSpan retention, CancellationToken ct);
 }
 
-internal sealed class JobHistoryStore(Func<PrefillDbContext> createContext) : IJobHistoryStore
+internal sealed class JobHistoryStore(Func<PrefillDbContext> createContext, TimeProvider time) : IJobHistoryStore
 {
+    public async Task PruneAsync(TimeSpan retention, CancellationToken ct)
+    {
+        var cutoff = time.GetUtcNow() - retention;
+        await using var context = createContext();
+        await context.JobRecords.Where(e => e.FinishedAt < cutoff).ExecuteDeleteAsync(ct);
+        await context.FiringRecords.Where(e => e.At < cutoff).ExecuteDeleteAsync(ct);
+    }
+
     public async Task OnJobFinishedAsync(Job job, CancellationToken ct)
     {
         await using var context = createContext();
