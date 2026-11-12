@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LancachePrefill.Core/LancachePrefill.Core.csproj" />
+    <Project Path="src/LancachePrefill.Modules.Steam/LancachePrefill.Modules.Steam.csproj" />
+    <Project Path="src/LancachePrefill.Web/LancachePrefill.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LancachePrefill.Core.Tests/LancachePrefill.Core.Tests.csproj" />
+    <Project Path="tests/LancachePrefill.Modules.Steam.Tests/LancachePrefill.Modules.Steam.Tests.csproj" />
+    <Project Path="tests/LancachePrefill.Web.Tests/LancachePrefill.Web.Tests.csproj" />
+  </Folder>
+</Solution>

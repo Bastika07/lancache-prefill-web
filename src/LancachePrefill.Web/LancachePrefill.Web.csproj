@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\LancachePrefill.Core\LancachePrefill.Core.csproj" />
+    <ProjectReference Include="..\LancachePrefill.Modules.Steam\LancachePrefill.Modules.Steam.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+</Project>
