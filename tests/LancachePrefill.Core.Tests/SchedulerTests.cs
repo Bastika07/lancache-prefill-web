@@ -40,6 +40,36 @@ public sealed class SchedulerTests : IAsyncDisposable
         await Eventually(() => epic.Runs.Count == 1);
     }
 
+    [Fact]
+    public async Task A_schedule_fires_again_at_every_later_occurrence()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        Start([steam], [new Schedule("Nightly", "0 3 * * *", ["steam"])]);
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => steam.Runs.Count == 1);
+        _time.Advance(TimeSpan.FromDays(1));
+        await Eventually(() => steam.Runs.Count == 2);
+        _time.Advance(TimeSpan.FromDays(1));
+        await Eventually(() => steam.Runs.Count == 3);
+    }
+
+    [Fact]
+    public async Task Cron_times_are_read_in_the_configured_time_zone()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var berlin = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        Start([steam], [new Schedule("Nightly", "0 3 * * *", ["steam"])], berlin);
+
+        // 03:00 Berlin in January is 02:00 UTC.
+        _time.Advance(TimeSpan.FromHours(2) - TimeSpan.FromSeconds(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Empty(steam.Runs);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await Eventually(() => steam.Runs.Count == 1);
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
