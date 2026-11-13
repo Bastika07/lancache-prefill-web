@@ -14,8 +14,12 @@ public sealed record JobRecord(
     DateTimeOffset FinishedAt,
     string? FailureReason,
     IReadOnlyList<GameOutcome> Games,
-    IReadOnlyList<string>? Warnings = null)
+    IReadOnlyList<string>? Warnings = null,
+    IReadOnlyList<JobLogLine>? Log = null)
 {
+    /// <summary>The newest lines logged while the Job ran (see <see cref="Job.MaxLogLines"/>).</summary>
+    public IReadOnlyList<JobLogLine> Log { get; init; } = Log ?? [];
+
     /// <summary>Problems that did not stop the Job, e.g. a Selection rule that could not be resolved.</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Warnings ?? [];
 
@@ -41,6 +45,9 @@ public interface IJobHistoryStore : IJobFinishedListener, IScheduleFiredListener
 {
     /// <summary>Most recently finished first.</summary>
     Task<IReadOnlyList<JobRecord>> GetRecentAsync(int limit, CancellationToken ct);
+
+    /// <summary>One finished Job, or null if unknown or already pruned.</summary>
+    Task<JobRecord?> GetAsync(Guid jobId, CancellationToken ct);
 
     /// <summary>Most recent first.</summary>
     Task<IReadOnlyList<FiringRecord>> GetRecentFiringsAsync(int limit, CancellationToken ct);
@@ -83,6 +90,13 @@ internal sealed class JobHistoryStore(Func<PrefillDbContext> createContext, Time
         return [.. entities.Select(e => e.ToRecord())];
     }
 
+    public async Task<JobRecord?> GetAsync(Guid jobId, CancellationToken ct)
+    {
+        await using var context = createContext();
+        var entity = await context.JobRecords.AsNoTracking().FirstOrDefaultAsync(e => e.JobId == jobId, ct);
+        return entity?.ToRecord();
+    }
+
     public async Task<IReadOnlyList<JobRecord>> GetRecentAsync(int limit, CancellationToken ct)
     {
         await using var context = createContext();
@@ -107,6 +121,7 @@ internal sealed class JobRecordEntity
     public string? FailureReason { get; set; }
     public required string GamesJson { get; set; }
     public string WarningsJson { get; set; } = "[]";
+    public string LogJson { get; set; } = "[]";
 
     public static JobRecordEntity From(Job job) => new()
     {
@@ -119,12 +134,14 @@ internal sealed class JobRecordEntity
         FailureReason = job.FailureReason,
         GamesJson = JsonSerializer.Serialize(job.Result?.Games ?? [], Json),
         WarningsJson = JsonSerializer.Serialize(job.Warnings),
+        LogJson = JsonSerializer.Serialize(job.Log, Json),
     };
 
     public JobRecord ToRecord() => new(
         JobId, ModuleId, State, EnqueuedAt, StartedAt, FinishedAt, FailureReason,
         JsonSerializer.Deserialize<List<GameOutcome>>(GamesJson, Json) ?? [],
-        JsonSerializer.Deserialize<List<string>>(WarningsJson));
+        JsonSerializer.Deserialize<List<string>>(WarningsJson),
+        JsonSerializer.Deserialize<List<JobLogLine>>(LogJson, Json));
 }
 
 internal sealed class FiringRecordEntity
