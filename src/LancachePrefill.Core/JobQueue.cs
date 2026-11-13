@@ -131,12 +131,19 @@ public sealed partial class JobQueue
                 await NotifyFinishedAsync(job, stoppingToken);
                 continue;
             }
+            using var jobLog = JobLogProvider.BeginJob(job);
+            LogJobStarted(_logger, job.Id, job.ModuleId);
             try
             {
                 var module = _modules[job.ModuleId];
                 var (request, warnings) = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
                 job.ResolvedGameIds = request.GameIds;
                 job.Warnings = warnings;
+                foreach (var warning in warnings)
+                {
+                    LogJobWarning(_logger, warning);
+                }
+                LogJobResolved(_logger, request.GameIds.Count);
                 if (request.GameIds.Count == 0 && warnings.Count > 0)
                 {
                     throw new InvalidOperationException(string.Join(" ", warnings));
@@ -167,6 +174,7 @@ public sealed partial class JobQueue
                     _runningCancellation = null;
                 }
             }
+            LogJobFinished(_logger, job.Id, job.State, job.FailureReason ?? "");
             await NotifyFinishedAsync(job, stoppingToken);
         }
     }
@@ -213,6 +221,18 @@ public sealed partial class JobQueue
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} started: Module {ModuleId}")]
+    private static partial void LogJobStarted(ILogger logger, Guid jobId, string moduleId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Prefilling {Count} Games")]
+    private static partial void LogJobResolved(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Warning}")]
+    private static partial void LogJobWarning(ILogger logger, string warning);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} {State} {FailureReason}")]
+    private static partial void LogJobFinished(ILogger logger, Guid jobId, JobState state, string failureReason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Job-finished listener {Listener} failed for Job {JobId}")]
     private static partial void LogListenerFailed(ILogger logger, Exception exception, string listener, Guid jobId);

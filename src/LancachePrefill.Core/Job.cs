@@ -32,6 +32,28 @@ public sealed class Job
     public PrefillResult? Result { get; private set; }
     public string? FailureReason { get; private set; }
 
+    /// <summary>The Job log keeps this many newest lines.</summary>
+    public const int MaxLogLines = 1000;
+
+    /// <summary>The newest <see cref="MaxLogLines"/> lines logged while the Job ran.</summary>
+    public IReadOnlyList<JobLogLine> Log
+    {
+        get { lock (_lock) { return [.. _log]; } }
+    }
+    private readonly Queue<JobLogLine> _log = new();
+
+    internal void AppendLog(JobLogLine line)
+    {
+        lock (_lock)
+        {
+            _log.Enqueue(line);
+            if (_log.Count > MaxLogLines)
+            {
+                _log.Dequeue();
+            }
+        }
+    }
+
     /// <summary>The Games the Module was asked for after resolving the Selection rules; null until the Job starts.</summary>
     public IReadOnlyList<string>? ResolvedGameIds { get; internal set; }
 
