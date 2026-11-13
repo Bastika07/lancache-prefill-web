@@ -26,6 +26,14 @@ public sealed record PrefillRequest(IReadOnlyList<string> GameIds, bool Force = 
     public IReadOnlyList<SelectionRule> Rules { get; init; } = Rules ?? [];
 }
 
+/// <summary>Which Games a Module prefills: explicit Games plus dynamic rules. See GLOSSARY.md → Selection.</summary>
+public sealed record Selection(IReadOnlyList<string> GameIds, IReadOnlyList<SelectionRule> Rules)
+{
+    public static Selection Empty { get; } = new([], []);
+
+    public PrefillRequest ToRequest(bool force = false) => new(GameIds, force, Rules);
+}
+
 public enum SelectionRuleKind
 {
     AllOwned,
