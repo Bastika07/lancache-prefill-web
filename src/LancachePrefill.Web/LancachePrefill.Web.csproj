@@ -11,6 +11,9 @@
 
   <PropertyGroup>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- The SDK only infers this when .razor files exist at restore time. The Dockerfile restores from
+         the project files alone, so without it blazor.web.js is missing and the UI is not interactive. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
 </Project>
