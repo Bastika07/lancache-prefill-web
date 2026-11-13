@@ -128,7 +128,10 @@ public sealed partial class JobQueue
             }
             try
             {
-                var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new JobProgress(job), cancellation.Token);
+                var module = _modules[job.ModuleId];
+                var request = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
+                job.ResolvedGameIds = request.GameIds;
+                var result = await module.PrefillAsync(request, new JobProgress(job), cancellation.Token);
                 job.MarkSucceeded(result, _time.GetUtcNow());
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -156,6 +159,21 @@ public sealed partial class JobQueue
             }
             await NotifyFinishedAsync(job, stoppingToken);
         }
+    }
+
+    /// <summary>Explicit Games first, then each rule's Games in rule order; duplicates dropped.</summary>
+    private static async Task<PrefillRequest> ResolveSelectionAsync(IPrefillModule module, PrefillRequest request, CancellationToken ct)
+    {
+        var gameIds = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Add(IEnumerable<string> ids) => gameIds.AddRange(ids.Where(seen.Add));
+
+        Add(request.GameIds);
+        foreach (var rule in request.Rules)
+        {
+            Add(await module.ResolveRuleAsync(rule, ct));
+        }
+        return request with { GameIds = gameIds, Rules = [] };
     }
 
     private async Task NotifyFinishedAsync(Job job, CancellationToken ct)

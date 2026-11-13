@@ -139,6 +139,22 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Dynamic_rules_add_their_games_after_the_explicit_games_without_duplicates()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.AllOwned] = ["570", "440", "730"];
+        steam.RuleGames[SelectionRule.TopPopular(2)] = ["730", "578080"];
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "10"], Rules: [SelectionRule.AllOwned, SelectionRule.TopPopular(2)]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(steam.Runs).Request;
+        Assert.Equal(["440", "10", "570", "730", "578080"], request.GameIds);
+        Assert.Equal(["440", "10", "570", "730", "578080"], job.ResolvedGameIds);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));
