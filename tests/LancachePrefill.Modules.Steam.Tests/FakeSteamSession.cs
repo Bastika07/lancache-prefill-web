@@ -86,6 +86,10 @@ internal sealed class FakeSteamSession : ISteamSession
     public Task<SteamManifest> DownloadManifestAsync(uint depotId, ulong manifestId, ulong requestCode, CdnServer server, CancellationToken ct)
     {
         Assert.Equal(manifestId * 7, requestCode);
+        if (UnavailableManifestServers.Contains(server.Host))
+        {
+            return Task.FromException<SteamManifest>(new HttpRequestException("503 (Service Unavailable)", null, System.Net.HttpStatusCode.ServiceUnavailable));
+        }
         lock (ManifestDownloads)
         {
             ManifestDownloads.Add((depotId, manifestId));
@@ -95,8 +99,13 @@ internal sealed class FakeSteamSession : ISteamSession
             : new SteamManifest(depotId, manifestId, [new SteamFile([new SteamChunk($"{depotId:x}aa", 1_048_576)])]));
     }
 
+    public List<CdnServer> CdnServers { get; } = [new CdnServer("cache1-fra1.steamcontent.com", Load: 10)];
+
+    /// <summary>CDN hosts that answer every manifest download with 503, like an overloaded CDN.</summary>
+    public HashSet<string> UnavailableManifestServers { get; } = [];
+
     public Task<IReadOnlyList<CdnServer>> GetCdnServersAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<CdnServer>>([new CdnServer("cache1-fra1.steamcontent.com", Load: 10)]);
+        Task.FromResult<IReadOnlyList<CdnServer>>([.. CdnServers]);
 }
 
 /// <summary>Remembers downloaded depot manifests in memory, standing in for the settings-backed store.</summary>

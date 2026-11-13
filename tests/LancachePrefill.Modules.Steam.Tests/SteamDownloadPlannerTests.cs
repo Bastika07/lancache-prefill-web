@@ -153,6 +153,18 @@ public sealed class SteamDownloadPlannerTests
     }
 
     [Fact]
+    public async Task A_manifest_the_least_loaded_cdn_server_cannot_deliver_is_fetched_from_the_next_one()
+    {
+        _steam.CdnServers.Add(new CdnServer("cache2-ams1.steamcontent.com", Load: 20));
+        _steam.UnavailableManifestServers.Add("cache1-fra1.steamcontent.com");
+
+        var plan = await PlanExampleGameAsync(SteamSettings.Default);
+
+        Assert.Equal(SteamPlanStatus.Download, plan.Status);
+        Assert.NotEmpty(plan.Chunks);
+    }
+
+    [Fact]
     public async Task Only_owned_released_non_mod_games_are_prefillable_and_they_come_sorted_by_name()
     {
         // 3000 is a tool, 3100 a mod, 3200 delisted, 480 Spacewar, 9999 unknown to Steam.
