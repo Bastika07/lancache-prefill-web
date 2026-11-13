@@ -1,6 +1,7 @@
 @using LancachePrefill.Core
 @using LancachePrefill.Core.Persistence
 @inject ISelectionStore Selections
+@inject JobQueue Queue
 
 <section aria-labelledby="@($"{Module.Id}-selection-heading")" class="selection-editor">
     <h2 id="@($"{Module.Id}-selection-heading")">Selection</h2>
@@ -57,6 +58,19 @@
 
     <div class="selection-actions">
         <button type="button" class="save-selection" @onclick="SaveAsync">Save selection</button>
+        @if (Dirty)
+        {
+            <span class="muted" data-testid="unsaved">Unsaved changes. Save them to prefill them and use them in Schedules.</span>
+        }
+    </div>
+
+    <div class="selection-actions">
+        <label><input type="checkbox" id="prefill-force" @bind="_force" /> Force (download even if up to date)</label>
+        <button type="submit" class="prefill-now" disabled="@(Dirty || IsEmpty(_saved))" @onclick="PrefillNow">Prefill now</button>
+        @if (_enqueued is { } job)
+        {
+            <a data-testid="enqueued-job" href="@($"jobs/{job.Id}")">Job @job.State →</a>
+        }
     </div>
 </section>
 
@@ -68,10 +82,20 @@
     private readonly List<string> _selected = [];
     private readonly HashSet<SelectionRuleKind> _rules = [];
     private int _topCount = 10;
+    private Selection _saved = Selection.Empty;
+    private bool _force;
+    private Job? _enqueued;
+
+    private bool Dirty => !Same(Draft(), _saved);
+
+    private static bool Same(Selection a, Selection b) => a.GameIds.SequenceEqual(b.GameIds) && a.Rules.SequenceEqual(b.Rules);
+
+    private static bool IsEmpty(Selection selection) => selection.GameIds.Count == 0 && selection.Rules.Count == 0;
 
     protected override async Task OnInitializedAsync()
     {
         var saved = await Selections.GetAsync(Module.Id, CancellationToken.None);
+        _saved = saved;
         _selected.AddRange(saved.GameIds);
         foreach (var rule in saved.Rules)
         {
@@ -120,7 +144,15 @@
         [.. Enum.GetValues<SelectionRuleKind>().Where(_rules.Contains)
             .Select(k => k == SelectionRuleKind.TopPopular ? SelectionRule.TopPopular(_topCount) : new SelectionRule(k))]);
 
-    private Task SaveAsync() => Selections.SaveAsync(Module.Id, Draft(), CancellationToken.None);
+    private async Task SaveAsync()
+    {
+        var draft = Draft();
+        await Selections.SaveAsync(Module.Id, draft, CancellationToken.None);
+        _saved = draft;
+    }
+
+    /// <summary>The saved Selection, exactly what Schedules prefill; never unsaved edits.</summary>
+    private void PrefillNow() => _enqueued = Queue.Enqueue(Module.Id, _saved.ToRequest(_force));
 
     private static string RuleLabel(SelectionRuleKind kind) => kind switch
     {

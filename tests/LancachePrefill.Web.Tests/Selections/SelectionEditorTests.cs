@@ -82,5 +82,37 @@ public sealed class SelectionEditorTests : IAsyncDisposable
             editor.FindAll("input[type=checkbox][id^=rule-]").Select(c => c.Id!)), Wait);
     }
 
+    [Fact]
+    public void Prefill_now_enqueues_the_saved_selection_and_waits_while_changes_are_unsaved()
+    {
+        _store.Saved["steam"] = new Selection(["570"], []);
+        var editor = Render();
+        editor.WaitForAssertion(() => Assert.False(editor.Find("button.prefill-now").IsDisabled()), Wait);
+
+        Row(editor, "Counter-Strike 2").QuerySelector("input[type=checkbox]")!.Change(true);
+        Assert.True(editor.Find("button.prefill-now").IsDisabled());
+        Assert.Contains("Save", editor.Find("[data-testid=unsaved]").TextContent, StringComparison.Ordinal);
+
+        editor.Find("button.save-selection").Click();
+        editor.WaitForAssertion(() => Assert.False(editor.Find("button.prefill-now").IsDisabled()), Wait);
+        Assert.Empty(editor.FindAll("[data-testid=unsaved]"));
+        editor.Find("#prefill-force").Change(true);
+        editor.Find("button.prefill-now").Click();
+
+        var job = Assert.Single(_queue.Jobs);
+        Assert.Equal("steam", job.ModuleId);
+        Assert.Equal(["570", "730"], job.Request.GameIds);
+        Assert.True(job.Request.Force);
+        Assert.Equal($"jobs/{job.Id}", editor.Find("[data-testid=enqueued-job]").GetAttribute("href"));
+    }
+
+    [Fact]
+    public void An_empty_selection_cannot_be_prefilled()
+    {
+        var editor = Render();
+
+        editor.WaitForAssertion(() => Assert.True(editor.Find("button.prefill-now").IsDisabled()), Wait);
+    }
+
     public async ValueTask DisposeAsync() => await _ctx.DisposeAsync();
 }
