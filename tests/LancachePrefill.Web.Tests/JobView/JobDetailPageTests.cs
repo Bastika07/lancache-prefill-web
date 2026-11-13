@@ -53,6 +53,56 @@ public sealed class JobDetailPageTests : IAsyncDisposable
         }, Wait);
     }
 
+    [Fact]
+    public void A_job_from_the_history_shows_its_outcome_figures_warnings_failure_and_log()
+    {
+        var started = new DateTimeOffset(2026, 11, 12, 3, 0, 0, TimeSpan.Zero);
+        var record = new JobRecord(Guid.NewGuid(), "steam", JobState.Failed, started, started, started.AddSeconds(100),
+            "No Lancache found; see the dashboard for details.",
+            [new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1_000_000_000),
+             new GameOutcome("570", GameOutcomeStatus.Failed, FailureReason: "12 of 40 chunks failed")],
+            ["Rule TopPopular(10) could not be resolved: SteamCharts unreachable"],
+            [new JobLogLine(started, LogLevel.Warning, "Steam", "Chunk retry 3/3")]);
+        _history.Records.Add(record);
+
+        var page = Render(record.JobId);
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Failed", page.Find("[data-testid=job-state]").TextContent, StringComparison.Ordinal);
+            Assert.Contains("953.7 MiB", page.Find("[data-testid=job-bytes]").TextContent, StringComparison.Ordinal);
+            Assert.Contains("No Lancache found", page.Find("[data-testid=job-failure]").TextContent, StringComparison.Ordinal);
+            Assert.Contains("SteamCharts unreachable", page.Find("[data-testid=job-warning]").TextContent, StringComparison.Ordinal);
+            var games = page.FindAll("[data-testid=game]");
+            Assert.Equal(2, games.Count);
+            Assert.Contains("12 of 40 chunks failed", games[1].TextContent, StringComparison.Ordinal);
+            var log = Assert.Single(page.FindAll("[data-testid=log-line]"));
+            Assert.Contains("WARN", log.TextContent, StringComparison.Ordinal);
+            Assert.Contains("Chunk retry 3/3", log.TextContent, StringComparison.Ordinal);
+            Assert.Empty(page.FindAll("button.cancel"));
+        }, Wait);
+    }
+
+    [Fact]
+    public void An_unknown_job_says_so()
+    {
+        var page = Render(Guid.NewGuid());
+
+        page.WaitForAssertion(() => Assert.NotNull(page.Find("[data-testid=job-not-found]")), Wait);
+    }
+
+    [Fact]
+    public void A_running_job_can_be_cancelled_from_its_page()
+    {
+        var job = _queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var page = Render(job.Id);
+        page.WaitForAssertion(() => Assert.Single(_steam.Runs), Wait);
+
+        page.WaitForElement("button.cancel", Wait).Click();
+
+        page.WaitForAssertion(() => Assert.Contains("Cancelled", page.Find("[data-testid=job-state]").TextContent, StringComparison.Ordinal), Wait);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
