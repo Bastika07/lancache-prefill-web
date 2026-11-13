@@ -24,7 +24,7 @@
             <label><input type="checkbox" @bind="_force" /> Force (download even if up to date)</label>
             <button type="submit">Prefill</button>
         </form>
-        @if (_job is { } job)
+        @if (LatestJob is { } job)
         {
             <dl data-testid="job-status">
                 <dt>State</dt><dd>@job.State</dd>
@@ -54,7 +54,9 @@
 @code {
     private string _appIds = "";
     private bool _force;
-    private Job? _job;
+
+    // The queue outlives the page, so a reload still shows the latest Steam Job.
+    private Job? LatestJob => Queue.Jobs.LastOrDefault(j => j.ModuleId == SteamPrefillModule.ModuleId);
     private Timer? _refresh;
 
     protected override void OnInitialized()
@@ -68,7 +70,7 @@
     private void Enqueue()
     {
         var ids = _appIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        _job = Queue.Enqueue(SteamPrefillModule.ModuleId, new PrefillRequest(ids, _force));
+        Queue.Enqueue(SteamPrefillModule.ModuleId, new PrefillRequest(ids, _force));
     }
 
     public void Dispose()

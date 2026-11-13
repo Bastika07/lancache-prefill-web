@@ -15,6 +15,7 @@ public sealed partial class JobQueue
     private readonly Dictionary<string, IPrefillModule> _modules;
     private readonly Channel<Job> _pending = Channel.CreateUnbounded<Job>(new UnboundedChannelOptions { SingleReader = true });
     private readonly ConcurrentDictionary<Guid, Job> _jobs = new();
+    private readonly List<Job> _jobsInOrder = [];
     private readonly TimeProvider _time;
     private readonly IReadOnlyList<IJobFinishedListener> _listeners;
     private readonly ILogger _logger;
@@ -43,9 +44,25 @@ public sealed partial class JobQueue
             throw new ArgumentException($"No Module with id '{moduleId}' is registered.", nameof(moduleId));
         }
         var job = new Job(moduleId, request, _time.GetUtcNow());
-        _jobs[job.Id] = job;
+        lock (_gate)
+        {
+            _jobs[job.Id] = job;
+            _jobsInOrder.Add(job);
+        }
         _pending.Writer.TryWrite(job);
         return job;
+    }
+
+    /// <summary>Every Job since app start, in enqueue order, with its live state.</summary>
+    public IReadOnlyList<Job> Jobs
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _jobsInOrder];
+            }
+        }
     }
 
     /// <summary>
