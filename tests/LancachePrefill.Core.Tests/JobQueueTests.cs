@@ -220,6 +220,19 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public void A_rule_the_module_does_not_support_is_rejected_when_enqueued()
+    {
+        var battlenet = new FakeModule("battlenet");
+        battlenet.RuleGames[SelectionRule.AllOwned] = [];
+        var queue = CreateQueue(battlenet);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            queue.Enqueue("battlenet", new PrefillRequest([], Rules: [SelectionRule.AllOwned, SelectionRule.RecentlyPlayed])));
+
+        Assert.Contains("RecentlyPlayed", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));

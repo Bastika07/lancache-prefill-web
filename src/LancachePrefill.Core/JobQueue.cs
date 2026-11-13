@@ -39,9 +39,14 @@ public sealed partial class JobQueue
 
     public Job Enqueue(string moduleId, PrefillRequest request)
     {
-        if (!_modules.ContainsKey(moduleId))
+        if (!_modules.TryGetValue(moduleId, out var module))
         {
             throw new ArgumentException($"No Module with id '{moduleId}' is registered.", nameof(moduleId));
+        }
+        var supported = module.SupportedRules;
+        if (request.Rules.FirstOrDefault(r => !supported.Contains(r.Kind)) is { } unsupported)
+        {
+            throw new ArgumentException($"Module '{moduleId}' does not support the rule {unsupported}.", nameof(request));
         }
         var job = new Job(moduleId, request, _time.GetUtcNow());
         lock (_gate)
