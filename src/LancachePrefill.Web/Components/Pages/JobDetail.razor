@@ -42,7 +42,7 @@ else
         <div class="card">
             <div class="card-label">Downloaded</div>
             <div class="card-value small" data-testid="job-bytes">@JobFormat.Bytes(v.BytesDownloaded)</div>
-            <div class="card-sub">@JobFormat.Speed(v.AverageBytesPerSecond)</div>
+            <div class="card-sub">@(v.BytesDownloaded > 0 ? JobFormat.Speed(v.AverageBytesPerSecond) : "")</div>
         </div>
         <div class="card">
             <div class="card-label">Games</div>
@@ -106,9 +106,12 @@ else
         }
         else
         {
-            <pre class="job-log">@foreach (var line in v.Log)
-            {<span data-testid="log-line" class="log-@line.Level.ToString().ToLowerInvariant()">@line.At.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) @Level(line.Level) @line.Message
-</span>}</pre>
+            <div class="job-log">
+                @foreach (var line in v.Log)
+                {
+                    <div data-testid="log-line" class="log-@line.Level.ToString().ToLowerInvariant()"><span class="muted">@line.At.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) @Level(line.Level)</span> @line.Message</div>
+                }
+            </div>
         }
     </section>
 }

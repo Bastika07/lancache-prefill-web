@@ -99,9 +99,9 @@ section p + p, section p + form, section form + p, section p + button { margin-t
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 0.78rem;
     line-height: 1.5;
-    white-space: pre-wrap;
     word-break: break-word;
 }
+.job-log > div { white-space: pre-wrap; }
 .job-log .log-warning { color: var(--warn); }
 .job-log .log-error, .job-log .log-critical { color: var(--error); }
 .job-log .log-debug, .job-log .log-trace { color: var(--text-muted); }
@@ -184,7 +184,7 @@ tbody td { padding: 12px; }
     border-radius: 6px;
     font-size: 0.9rem;
 }
-.badge { padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 500; }
+.badge { padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 500; border: 1px solid var(--border-strong); background: var(--border); }
 .badge-err { background: var(--error-bg); border: 1px solid var(--error-border); color: var(--error); }
 .badge-info { background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info-text); }
 .badge-ok { background: #1c4532; border: 1px solid #276749; color: #9ae6b4; }

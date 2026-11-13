@@ -66,8 +66,8 @@
                         <td>@(record.StartedAt is { } started ? JobFormat.Time(started) : "–")</td>
                         <td>@JobFormat.Duration(record.Duration)</td>
                         <td>@JobFormat.Bytes(record.BytesDownloaded)</td>
-                        <td>@JobFormat.Speed(record.AverageBytesPerSecond)</td>
-                        <td>@record.Games.Count Games@(failed > 0 ? $", {failed} failed" : "")</td>
+                        <td>@(record.BytesDownloaded > 0 ? JobFormat.Speed(record.AverageBytesPerSecond) : "–")</td>
+                        <td>@record.Games.Count @(record.Games.Count == 1 ? "Game" : "Games")@(failed > 0 ? $", {failed} failed" : "")</td>
                     </tr>
                 }
             </tbody>
