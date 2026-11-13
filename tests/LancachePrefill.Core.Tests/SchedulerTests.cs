@@ -190,6 +190,45 @@ public sealed class SchedulerTests : IAsyncDisposable
         Assert.Single(steam.Runs);
     }
 
+    [Fact]
+    public async Task A_schedule_put_in_effect_after_its_time_today_waits_for_its_next_occurrence()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var (_, scheduler) = Start([steam], [new Schedule("Nightly", "0 3 * * *", ["steam"])]);
+        _time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromMinutes(90));
+
+        scheduler.ReplaceSchedules([new Schedule("Two o'clock", "0 2 * * *", ["steam"])]);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Empty(steam.Runs);
+
+        _time.Advance(TimeSpan.FromHours(23.5));
+        await Eventually(() => steam.Runs.Count == 1);
+    }
+
+    [Fact]
+    public async Task Run_now_fires_a_schedule_immediately_like_its_cron_time_would_and_records_the_firing()
+    {
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var nightly = new Schedule("Nightly", "0 3 * * *", ["steam", "epic"]);
+        var (queue, scheduler) = Start([steam, epic], [nightly]);
+        queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        var firing = await scheduler.RunNowAsync(nightly, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Nightly", firing.ScheduleName);
+        Assert.Equal(_time.GetUtcNow(), firing.At);
+        Assert.True(Assert.Single(firing.Modules, m => m.ModuleId == "steam").Skipped);
+        Assert.Equal(firing, Assert.Single(scheduler.Firings));
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        await Eventually(() => epic.Runs.Count == 1);
+        Assert.Equal(["epic-selection"], epic.Runs[0].Request.GameIds);
+        Assert.False(epic.Runs[0].Request.Force);
+    }
+
     private sealed class ThrowingListener : IScheduleFiredListener
     {
         public Task OnScheduleFiredAsync(ScheduleFiring firing, CancellationToken ct) =>

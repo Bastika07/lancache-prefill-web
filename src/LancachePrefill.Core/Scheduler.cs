@@ -24,7 +24,7 @@ public sealed partial class Scheduler
     private readonly ILogger _logger;
 
     // Occurrences in (_checkedUpTo, now] are due. Starts at construction so nothing is missed
-    // between creating the Scheduler and its loop starting.
+    // between creating the Scheduler and its loop starting. Guarded by _schedulesLock.
     private DateTimeOffset _checkedUpTo;
 
     private readonly Lock _firingsLock = new();
@@ -73,6 +73,9 @@ public sealed partial class Scheduler
         lock (_schedulesLock)
         {
             _schedules = parsed;
+            // Only occurrences after now count for the new Schedules: an edit at 02:30 to "02:00"
+            // waits for tomorrow instead of firing at once.
+            _checkedUpTo = _time.GetUtcNow();
             wake = _wake;
             _wake = NewWake();
         }
@@ -120,18 +123,32 @@ public sealed partial class Scheduler
 
     private async Task FireDueAsync(DateTimeOffset now, CancellationToken ct)
     {
-        foreach (var (schedule, cron) in CurrentSchedules())
+        List<Schedule> due;
+        lock (_schedulesLock)
         {
-            var occurrence = cron.GetNextOccurrence(_checkedUpTo, _timeZone);
-            if (occurrence is not null && occurrence <= now)
+            var from = _checkedUpTo;
+            due = [.. _schedules
+                .Where(s => s.Cron.GetNextOccurrence(from, _timeZone) is { } occurrence && occurrence <= now)
+                .Select(s => s.Schedule)];
+            if (now > _checkedUpTo)
             {
-                await FireAsync(schedule, now, ct);
+                _checkedUpTo = now;
             }
         }
-        _checkedUpTo = now;
+        foreach (var schedule in due)
+        {
+            await FireAsync(schedule, now, ct);
+        }
     }
 
-    private async Task FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
+    /// <summary>
+    /// Fires <paramref name="schedule"/> now, exactly as its cron time would: one update-only Job per
+    /// Module from its saved Selection, skipping Modules with a queued or running Job. The firing is recorded.
+    /// </summary>
+    public Task<ScheduleFiring> RunNowAsync(Schedule schedule, CancellationToken ct) =>
+        FireAsync(schedule, _time.GetUtcNow(), ct);
+
+    private async Task<ScheduleFiring> FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
     {
         var modules = new List<ModuleFiring>();
         foreach (var moduleId in schedule.ModuleIds)
@@ -168,6 +185,7 @@ public sealed partial class Scheduler
                 LogListenerFailed(_logger, ex, listener.GetType().Name, schedule.Name);
             }
         }
+        return firing;
     }
 
     private DateTimeOffset? NextOccurrenceAfter(DateTimeOffset now) =>
