@@ -22,7 +22,8 @@ public sealed record SteamAppInfo
     public IReadOnlyList<SteamDepotInfo> Depots { get; init; } = [];
     public IReadOnlyList<int> Categories { get; init; } = [];
 
-    public bool SupportsWindows => OsList.Count == 0 || OsList.Contains("windows");
+    /// <summary>Upstream only knew Windows; an app without an oslist runs everywhere.</summary>
+    public bool SupportsAny(IEnumerable<string> operatingSystems) => OsList.Count == 0 || operatingSystems.Any(OsList.Contains);
 
     private static readonly HashSet<string> KnownTypes =
         ["application", "beta", "config", "demo", "dlc", "game", "guide", "hardware", "media", "music", "series", "tool", "video"];

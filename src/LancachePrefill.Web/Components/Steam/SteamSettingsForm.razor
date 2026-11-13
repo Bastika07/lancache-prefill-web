@@ -1,0 +1,113 @@
+@using LancachePrefill.Core.Persistence
+@using LancachePrefill.Modules.Steam
+@inject ISettingsStore Settings
+
+<section aria-labelledby="steam-settings-heading">
+    <h2 id="steam-settings-heading">Settings</h2>
+    @if (_settings is null)
+    {
+        <p role="status">Loading settings…</p>
+    }
+    else
+    {
+        <form id="steam-settings" @onsubmit="SaveAsync">
+            <fieldset>
+                <legend>Operating systems</legend>
+                @foreach (var os in SteamSettings.KnownOperatingSystems)
+                {
+                    <label>
+                        <input type="checkbox" id="@($"os-{os}")" checked="@_operatingSystems.Contains(os)"
+                               @onchange="e => ToggleOs(os, e.Value is true)" />
+                        @OsLabel(os)
+                    </label>
+                }
+            </fieldset>
+
+            <label for="max-concurrent-requests">Max concurrent requests (1–100)</label>
+            <input id="max-concurrent-requests" type="number" min="@SteamSettings.MinConcurrentRequests" max="@SteamSettings.MaxConcurrentRequestsLimit"
+                   value="@_maxConcurrent" @onchange="e => _maxConcurrent = e.Value?.ToString() ?? string.Empty" />
+
+            <label for="steam-language">Language (which language depots are prefilled)</label>
+            <select id="steam-language" value="@_language" @onchange="e => _language = e.Value?.ToString() ?? SteamSettings.Default.Language">
+                @foreach (var language in SteamSettings.KnownLanguages)
+                {
+                    <option value="@language">@language</option>
+                }
+            </select>
+
+            @if (_error is { } error)
+            {
+                <p class="error" role="alert">@error</p>
+            }
+            else if (_savedMessage)
+            {
+                <p role="status">Saved. The next Job uses these settings.</p>
+            }
+            <button type="submit">Save settings</button>
+        </form>
+    }
+</section>
+
+@code {
+    /// <summary>Raised after the settings were saved.</summary>
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private SteamSettings? _settings;
+    private readonly List<string> _operatingSystems = [];
+    private string _maxConcurrent = "";
+    private string _language = "";
+    private string? _error;
+    private bool _savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await Settings.GetModuleAsync(SteamPrefillModule.ModuleId, SteamSettings.Default, CancellationToken.None);
+        _operatingSystems.AddRange(_settings.OperatingSystems);
+        _maxConcurrent = _settings.MaxConcurrentRequests.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _language = _settings.Language;
+    }
+
+    private void ToggleOs(string os, bool enabled)
+    {
+        _operatingSystems.Remove(os);
+        if (enabled)
+        {
+            _operatingSystems.Add(os);
+        }
+        _savedMessage = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _savedMessage = false;
+        if (_operatingSystems.Count == 0)
+        {
+            _error = "Choose at least one operating system.";
+            return;
+        }
+        if (!int.TryParse(_maxConcurrent, System.Globalization.CultureInfo.InvariantCulture, out var max)
+            || max < SteamSettings.MinConcurrentRequests || max > SteamSettings.MaxConcurrentRequestsLimit)
+        {
+            _error = "Max concurrent requests must be between 1 and 100.";
+            return;
+        }
+        _error = null;
+        _settings = _settings! with
+        {
+            OperatingSystems = [.. SteamSettings.KnownOperatingSystems.Where(_operatingSystems.Contains)],
+            MaxConcurrentRequests = max,
+            Language = _language,
+        };
+        await Settings.SaveModuleAsync(SteamPrefillModule.ModuleId, _settings, CancellationToken.None);
+        _savedMessage = true;
+        await OnSaved.InvokeAsync();
+    }
+
+    private static string OsLabel(string os) => os switch
+    {
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        _ => os,
+    };
+}

@@ -1,0 +1,181 @@
+@using LancachePrefill.Core
+@using LancachePrefill.Core.Persistence
+@inject ISelectionStore Selections
+@inject JobQueue Queue
+
+<section aria-labelledby="@($"{Module.Id}-selection-heading")" class="selection-editor">
+    <h2 id="@($"{Module.Id}-selection-heading")">Selection</h2>
+
+    @if (Module.SupportedRules.Count > 0)
+    {
+        <fieldset class="selection-rules">
+            <legend>Dynamic rules</legend>
+            @foreach (var kind in Enum.GetValues<SelectionRuleKind>().Where(Module.SupportedRules.Contains))
+            {
+                <label>
+                    <input type="checkbox" id="@($"rule-{kind}")" checked="@_rules.Contains(kind)"
+                           @onchange="e => ToggleRule(kind, e.Value is true)" />
+                    @if (kind == SelectionRuleKind.TopPopular)
+                    {
+                        <span>Top</span>
+                        <input type="number" id="rule-TopPopular-count" min="1" max="100" class="rule-count"
+                               value="@_topCount" @onchange="e => SetTopCount(e.Value)" />
+                        <span>popular games</span>
+                    }
+                    else
+                    {
+                        @RuleLabel(kind)
+                    }
+                </label>
+            }
+        </fieldset>
+    }
+
+    <div class="selection-games">
+        <div class="selection-toolbar">
+            <input id="game-search" type="search" placeholder="Search by name or id" autocomplete="off"
+                   value="@_search" @oninput="e => _search = e.Value?.ToString() ?? string.Empty" />
+            <label><input type="checkbox" id="only-selected" @bind="_onlySelected" /> Only selected</label>
+            @if (_games is not null)
+            {
+                <span class="muted" data-testid="selected-count">@_selected.Count(_known.Contains) of @_games.Count selected</span>
+            }
+        </div>
+
+        @if (_games is null)
+        {
+            <p role="status">Loading games…</p>
+        }
+        else
+        {
+            @foreach (var id in _selected.Where(id => !_known.Contains(id)).ToList())
+            {
+                <p class="warning" data-testid="unavailable-game">
+                    Game @id is selected but no longer available (not owned or not prefillable).
+                    <button type="button" @onclick="() => ToggleGame(id, false)">Remove</button>
+                </p>
+            }
+            <ul class="game-list">
+                @foreach (var game in Visible())
+                {
+                    <li data-testid="game-row">
+                        <label>
+                            <input type="checkbox" checked="@_selected.Contains(game.Id)" @onchange="e => ToggleGame(game.Id, e.Value is true)" />
+                            <span class="game-name">@game.Name</span>
+                            <span class="muted">@game.Id</span>
+                        </label>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+
+    <div class="selection-actions">
+        <button type="button" class="save-selection" @onclick="SaveAsync">Save selection</button>
+        @if (Dirty)
+        {
+            <span class="muted" data-testid="unsaved">Unsaved changes. Save them to prefill them and use them in Schedules.</span>
+        }
+    </div>
+
+    <div class="selection-actions">
+        <label><input type="checkbox" id="prefill-force" @bind="_force" /> Force (download even if up to date)</label>
+        <button type="submit" class="prefill-now" disabled="@(Dirty || IsEmpty(_saved))" @onclick="PrefillNow">Prefill now</button>
+        @if (_enqueued is { } job)
+        {
+            <a data-testid="enqueued-job" href="@($"jobs/{job.Id}")">Job @job.State →</a>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IPrefillModule Module { get; set; } = default!;
+
+    private IReadOnlyList<GameInfo>? _games;
+    private HashSet<string> _known = [];
+    private bool _onlySelected;
+    private string _search = string.Empty;
+    private readonly List<string> _selected = [];
+    private readonly HashSet<SelectionRuleKind> _rules = [];
+    private int _topCount = 10;
+    private Selection _saved = Selection.Empty;
+    private bool _force;
+    private Job? _enqueued;
+
+    private bool Dirty => !Same(Draft(), _saved);
+
+    private static bool Same(Selection a, Selection b) => a.GameIds.SequenceEqual(b.GameIds) && a.Rules.SequenceEqual(b.Rules);
+
+    private static bool IsEmpty(Selection selection) => selection.GameIds.Count == 0 && selection.Rules.Count == 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var saved = await Selections.GetAsync(Module.Id, CancellationToken.None);
+        _saved = saved;
+        _selected.AddRange(saved.GameIds);
+        foreach (var rule in saved.Rules)
+        {
+            _rules.Add(rule.Kind);
+            if (rule.Kind == SelectionRuleKind.TopPopular)
+            {
+                _topCount = rule.Count;
+            }
+        }
+        var games = await Module.ListGamesAsync(CancellationToken.None);
+        _games = [.. games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)];
+        _known = [.. games.Select(g => g.Id)];
+    }
+
+    private IEnumerable<GameInfo> Visible()
+    {
+        var search = _search.Trim();
+        return _games!.Where(g => (!_onlySelected || _selected.Contains(g.Id)) && (search.Length == 0
+            || g.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || g.Id.Contains(search, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void ToggleGame(string id, bool selected)
+    {
+        _selected.Remove(id);
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+    }
+
+    private void ToggleRule(SelectionRuleKind kind, bool enabled)
+    {
+        if (enabled) { _rules.Add(kind); } else { _rules.Remove(kind); }
+    }
+
+    private void SetTopCount(object? value)
+    {
+        if (int.TryParse(value?.ToString(), out var count))
+        {
+            _topCount = Math.Clamp(count, 1, 100);
+        }
+    }
+
+    private Selection Draft() => new(
+        [.. _selected],
+        [.. Enum.GetValues<SelectionRuleKind>().Where(_rules.Contains)
+            .Select(k => k == SelectionRuleKind.TopPopular ? SelectionRule.TopPopular(_topCount) : new SelectionRule(k))]);
+
+    private async Task SaveAsync()
+    {
+        var draft = Draft();
+        await Selections.SaveAsync(Module.Id, draft, CancellationToken.None);
+        _saved = draft;
+    }
+
+    /// <summary>The saved Selection, exactly what Schedules prefill; never unsaved edits.</summary>
+    private void PrefillNow() => _enqueued = Queue.Enqueue(Module.Id, _saved.ToRequest(_force));
+
+    private static string RuleLabel(SelectionRuleKind kind) => kind switch
+    {
+        SelectionRuleKind.AllOwned => "All owned games",
+        SelectionRuleKind.RecentlyPlayed => "Recently played (2 weeks)",
+        SelectionRuleKind.RecentlyPurchased => "Recently purchased (30 days)",
+        _ => kind.ToString(),
+    };
+}

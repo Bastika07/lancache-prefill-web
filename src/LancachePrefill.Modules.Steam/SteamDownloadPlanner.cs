@@ -26,9 +26,9 @@ public sealed class SteamDownloadPlanner(ISteamSession steam, IDownloadedDepotSt
 
     /// <summary>
     /// Loads metadata for the apps (plus their owned DLC and linked apps) and returns the ones that are
-    /// prefillable games, ordered by name.
+    /// prefillable games for the chosen operating systems, ordered by name.
     /// </summary>
-    public async Task<IReadOnlyList<SteamAppInfo>> GetAvailableGamesAsync(IEnumerable<uint> appIds, CancellationToken ct)
+    public async Task<IReadOnlyList<SteamAppInfo>> GetAvailableGamesAsync(IEnumerable<uint> appIds, SteamSettings settings, CancellationToken ct)
     {
         var ids = appIds.Distinct().ToList();
         await LoadAppsAsync(ids, ct);
@@ -38,7 +38,7 @@ public sealed class SteamDownloadPlanner(ISteamSession steam, IDownloadedDepotSt
             .OfType<SteamAppInfo>()
             .Where(a => a.Type is "game" or "beta" or "demo"
                         && a.ReleaseState is not ("unavailable" or "disabled")
-                        && a.SupportsWindows
+                        && a.SupportsAny(settings.OperatingSystems)
                         && steam.OwnsApp(a.AppId)
                         && !ExcludedAppIds.Contains(a.AppId)
                         && !a.Categories.Contains(CategoryMods)

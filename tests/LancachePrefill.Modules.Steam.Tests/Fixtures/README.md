@@ -13,3 +13,4 @@ depot 228986, which is real and on the exclusion list.
 | 2000 Shared Runtime | target of a `depotfromapp` link |
 | 228980 Steamworks Common Redistributables | owned by every account, like on real Steam, so only the exclusion list keeps depot 228986 out |
 | 3000 Example Tool, 3100 Example Mod, 3200 Delisted Game, 480 Spacewar | availability filter |
+| 3400 Linux Only Game | prefillable only when Linux is a chosen operating system |

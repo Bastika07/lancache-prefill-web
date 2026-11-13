@@ -37,6 +37,15 @@ public sealed partial class SteamPrefillModule(
         SelectionRuleKind.TopPopular,
     };
 
+    /// <summary>The Account's owned, prefillable Games for the chosen operating systems, by name.</summary>
+    public async Task<IReadOnlyList<GameInfo>> ListGamesAsync(CancellationToken ct)
+    {
+        var owned = await library.GetOwnedAppsAsync(ct);
+        var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
+        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(owned.Keys, steamSettings, ct);
+        return [.. games.Select(g => new GameInfo(g.AppId.ToString(CultureInfo.InvariantCulture), g.Name))];
+    }
+
     /// <summary>
     /// Port of SteamManager.BuildAppIdDownloadListAsync. Results are narrowed to owned, prefillable
     /// games, so e.g. "all owned" doesn't list every DLC and tool as a skipped Game.
@@ -52,7 +61,8 @@ public sealed partial class SteamPrefillModule(
             SelectionRuleKind.TopPopular => [.. (await charts.GetMostPlayedAppIdsAsync(ct)).Take(rule.Count)],
             _ => throw new NotSupportedException($"Steam does not support the rule {rule}."),
         };
-        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(candidates, ct);
+        var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
+        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(candidates, steamSettings, ct);
         return [.. games.Select(g => g.AppId.ToString(CultureInfo.InvariantCulture))];
     }
 
@@ -90,7 +100,7 @@ public sealed partial class SteamPrefillModule(
 
         progress.Report(new PrefillProgress("Loading app metadata"));
         var planner = new SteamDownloadPlanner(steam, downloaded); // fresh per Job: current metadata
-        var games = await planner.GetAvailableGamesAsync(appIds, ct);
+        var games = await planner.GetAvailableGamesAsync(appIds, steamSettings, ct);
         var available = games.Select(g => g.AppId).ToHashSet();
         var operatingSystems = string.Join(", ", steamSettings.OperatingSystems);
         LogAvailable(logger, games.Count, appIds.Count, operatingSystems);

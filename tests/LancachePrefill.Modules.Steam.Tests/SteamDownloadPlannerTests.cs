@@ -13,7 +13,7 @@ public sealed class SteamDownloadPlannerTests
     private async Task<SteamAppPlan> PlanExampleGameAsync(SteamSettings settings, bool force = false)
     {
         var planner = Planner();
-        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], Ct));
+        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], SteamSettings.Default, Ct));
         return await planner.PlanAsync(game, settings, force, Ct);
     }
 
@@ -92,7 +92,7 @@ public sealed class SteamDownloadPlannerTests
     public async Task After_a_successful_prefill_the_game_is_up_to_date_without_fetching_manifests()
     {
         var planner = Planner();
-        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], Ct));
+        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], SteamSettings.Default, Ct));
         await planner.MarkDownloadedAsync(await planner.PlanAsync(game, SteamSettings.Default, force: false, Ct), Ct);
         _steam.ManifestDownloads.Clear();
 
@@ -107,7 +107,7 @@ public sealed class SteamDownloadPlannerTests
     public async Task Force_downloads_an_up_to_date_game_again()
     {
         var planner = Planner();
-        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], Ct));
+        var game = Assert.Single(await planner.GetAvailableGamesAsync([1000], SteamSettings.Default, Ct));
         await planner.MarkDownloadedAsync(await planner.PlanAsync(game, SteamSettings.Default, force: false, Ct), Ct);
 
         var plan = await planner.PlanAsync(game, SteamSettings.Default, force: true, Ct);
@@ -132,7 +132,7 @@ public sealed class SteamDownloadPlannerTests
     {
         _steam.UnownedDepots.Add(3301); // the only depot of "Another Game"
         var planner = Planner();
-        var game = Assert.Single(await planner.GetAvailableGamesAsync([3300], Ct));
+        var game = Assert.Single(await planner.GetAvailableGamesAsync([3300], SteamSettings.Default, Ct));
 
         var plan = await planner.PlanAsync(game, SteamSettings.Default, force: false, Ct);
 
@@ -145,9 +145,19 @@ public sealed class SteamDownloadPlannerTests
     public async Task Only_owned_released_non_mod_games_are_prefillable_and_they_come_sorted_by_name()
     {
         // 3000 is a tool, 3100 a mod, 3200 delisted, 480 Spacewar, 9999 unknown to Steam.
-        var games = await Planner().GetAvailableGamesAsync([1000, 3000, 3100, 3200, 480, 3300, 9999], Ct);
+        var games = await Planner().GetAvailableGamesAsync([1000, 3000, 3100, 3200, 480, 3300, 9999], SteamSettings.Default, Ct);
 
         Assert.Equal(["Another Game", "Example Game"], games.Select(g => g.Name));
+    }
+
+    [Fact]
+    public async Task A_game_for_another_operating_system_is_prefillable_only_when_that_system_is_chosen()
+    {
+        Assert.Empty(await Planner().GetAvailableGamesAsync([3400], SteamSettings.Default, Ct));
+
+        var linux = await Planner().GetAvailableGamesAsync([3400, 1000], SteamSettings.Default with { OperatingSystems = ["linux"] }, Ct);
+
+        Assert.Equal(["Example Game", "Linux Only Game"], linux.Select(g => g.Name));
     }
 
     [Fact]
@@ -155,6 +165,6 @@ public sealed class SteamDownloadPlannerTests
     {
         _steam.OwnedApps.Remove(3300);
 
-        Assert.Empty(await Planner().GetAvailableGamesAsync([3300], Ct));
+        Assert.Empty(await Planner().GetAvailableGamesAsync([3300], SteamSettings.Default, Ct));
     }
 }
