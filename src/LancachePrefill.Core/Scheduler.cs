@@ -1,4 +1,5 @@
 using Cronos;
+using LancachePrefill.Core.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -15,7 +16,7 @@ public sealed partial class Scheduler
     private readonly IReadOnlyList<(Schedule Schedule, CronExpression Cron)> _schedules;
     private readonly TimeZoneInfo _timeZone;
     private readonly TimeProvider _time;
-    private readonly Func<string, PrefillRequest> _requestFor;
+    private readonly ISelectionStore _selections;
     private readonly IReadOnlyList<IScheduleFiredListener> _listeners;
     private readonly ILogger _logger;
 
@@ -31,7 +32,7 @@ public sealed partial class Scheduler
         IEnumerable<Schedule> schedules,
         TimeZoneInfo timeZone,
         TimeProvider time,
-        Func<string, PrefillRequest> requestFor,
+        ISelectionStore selections,
         IEnumerable<IScheduleFiredListener>? listeners = null,
         ILogger<Scheduler>? logger = null)
     {
@@ -39,7 +40,7 @@ public sealed partial class Scheduler
         _schedules = [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
         _timeZone = timeZone;
         _time = time;
-        _requestFor = requestFor;
+        _selections = selections;
         _listeners = [.. listeners ?? []];
         _logger = logger ?? NullLogger<Scheduler>.Instance;
         _checkedUpTo = time.GetUtcNow();
@@ -82,9 +83,13 @@ public sealed partial class Scheduler
 
     private async Task FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
     {
-        var modules = schedule.ModuleIds
-            .Select(moduleId => new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, _requestFor(moduleId), out var job) ? job : null))
-            .ToList();
+        var modules = new List<ModuleFiring>();
+        foreach (var moduleId in schedule.ModuleIds)
+        {
+            // Update-only: never Force. Rules are resolved by the Job queue when the Job starts.
+            var request = (await _selections.GetAsync(moduleId, ct)).ToRequest(force: false);
+            modules.Add(new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, request, out var job) ? job : null));
+        }
         var firing = new ScheduleFiring(schedule.Name, at, modules);
         lock (_firingsLock)
         {

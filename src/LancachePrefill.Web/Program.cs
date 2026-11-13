@@ -59,7 +59,7 @@ builder.Services.AddSingleton(sp =>
         schedules.Select(s => s.Schedule),
         TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZoneId),
         sp.GetRequiredService<TimeProvider>(),
-        moduleId => new PrefillRequest([]), // TODO(#3): resolve the Module's Selection
+        db.Selections,
         [db.JobHistory],
         sp.GetRequiredService<ILogger<Scheduler>>());
 });

@@ -76,7 +76,7 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         var epic = new FakeModule("epic");
         var queue = StartQueue(db, steam, epic);
         var scheduler = new Scheduler(queue, [new Schedule("Nightly", "0 3 * * *", ["steam", "epic"])],
-            TimeZoneInfo.Utc, _fixture.Time, id => new PrefillRequest([id]), [db.JobHistory]);
+            TimeZoneInfo.Utc, _fixture.Time, new FakeSelectionStore(id => new Selection([id], [])), [db.JobHistory]);
         _loops.Add(scheduler.RunAsync(_stop.Token));
         queue.Enqueue("steam", new PrefillRequest(["440"]));
         await Eventually(() => steam.Runs.Count == 1);
@@ -104,7 +104,7 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         var queue = StartQueue(db, steam);
         // Fires only on Jan 7 and Feb 7, so moving the clock to day 91 adds nothing new.
         var scheduler = new Scheduler(queue, [new Schedule("Twice", "0 3 7 1,2 *", ["steam"])],
-            TimeZoneInfo.Utc, _fixture.Time, id => new PrefillRequest([id]), [db.JobHistory]);
+            TimeZoneInfo.Utc, _fixture.Time, new FakeSelectionStore(id => new Selection([id], [])), [db.JobHistory]);
         _loops.Add(scheduler.RunAsync(_stop.Token));
 
         _fixture.Time.Advance(TimeSpan.FromHours(3));                 // day 0: firing + Job

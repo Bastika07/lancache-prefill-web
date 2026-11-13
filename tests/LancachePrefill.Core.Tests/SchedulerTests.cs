@@ -17,7 +17,7 @@ public sealed class SchedulerTests : IAsyncDisposable
     {
         var queue = new JobQueue(modules);
         var scheduler = new Scheduler(queue, schedules, timeZone ?? TimeZoneInfo.Utc, _time,
-            moduleId => new PrefillRequest([$"{moduleId}-selection"]), listeners);
+            new FakeSelectionStore(moduleId => new Selection([$"{moduleId}-selection"], [])), listeners);
         _loops.Add(queue.RunAsync(_stop.Token));
         _loops.Add(scheduler.RunAsync(_stop.Token));
         return (queue, scheduler);
