@@ -21,7 +21,7 @@ public sealed partial class SteamPrefillModule(
     ISteamLibrary library,
     SteamChartsClient charts,
     TimeProvider time,
-    ILogger<SteamPrefillModule> logger) : IPrefillModule
+    ILogger<SteamPrefillModule> logger) : IPrefillModule, IDisposable
 {
     public const string ModuleId = "steam";
     private static readonly TimeSpan RecentPurchaseWindow = TimeSpan.FromDays(30);
@@ -37,13 +37,37 @@ public sealed partial class SteamPrefillModule(
         SelectionRuleKind.TopPopular,
     };
 
-    /// <summary>The Account's owned, prefillable Games for the chosen operating systems, by name.</summary>
+    private static readonly TimeSpan GameListLifetime = TimeSpan.FromMinutes(15);
+    private readonly SemaphoreSlim _gameListLock = new(1, 1);
+    private (string Key, DateTimeOffset At, IReadOnlyList<GameInfo> Games)? _gameList;
+
+    public void Dispose() => _gameListLock.Dispose();
+
+    /// <summary>
+    /// The Account's owned, prefillable Games for the chosen operating systems, by name. Loading it asks
+    /// Steam for every owned app, so it is kept for a while per operating-system choice.
+    /// </summary>
     public async Task<IReadOnlyList<GameInfo>> ListGamesAsync(CancellationToken ct)
     {
-        var owned = await library.GetOwnedAppsAsync(ct);
         var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
-        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(owned.Keys, steamSettings, ct);
-        return [.. games.Select(g => new GameInfo(g.AppId.ToString(CultureInfo.InvariantCulture), g.Name))];
+        var key = string.Join(",", steamSettings.OperatingSystems.Order(StringComparer.Ordinal));
+        await _gameListLock.WaitAsync(ct);
+        try
+        {
+            if (_gameList is { } cached && cached.Key == key && time.GetUtcNow() - cached.At < GameListLifetime)
+            {
+                return cached.Games;
+            }
+            var owned = await library.GetOwnedAppsAsync(ct);
+            var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(owned.Keys, steamSettings, ct);
+            IReadOnlyList<GameInfo> list = [.. games.Select(g => new GameInfo(g.AppId.ToString(CultureInfo.InvariantCulture), g.Name))];
+            _gameList = (key, time.GetUtcNow(), list);
+            return list;
+        }
+        finally
+        {
+            _gameListLock.Release();
+        }
     }
 
     /// <summary>
