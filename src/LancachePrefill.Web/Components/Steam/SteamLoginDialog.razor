@@ -1,0 +1,101 @@
+@using LancachePrefill.Modules.Steam
+@using QRCoder
+@implements IDisposable
+@inject ISteamLogin Login
+
+<section class="steam-login" aria-labelledby="steam-login-heading">
+    <h2 id="steam-login-heading">Steam account</h2>
+
+    @switch (Login.State)
+    {
+        case SteamLoginState.SignedOut signedOut:
+            @if (signedOut.Error is { } error)
+            {
+                <p class="error" role="alert">@error</p>
+            }
+            <form id="steam-credentials" @onsubmit="StartCredentialsAsync">
+                <label for="steam-username">Steam username</label>
+                <input id="steam-username" autocomplete="username" @bind="_username" />
+                <label for="steam-password">Password</label>
+                <input id="steam-password" type="password" autocomplete="current-password" @bind="_password" />
+                <button type="submit">Sign in</button>
+            </form>
+            <p>or</p>
+            <button id="steam-qr-login" type="button" @onclick="StartQrAsync">Sign in with the Steam Mobile app (QR code)</button>
+            break;
+
+        case SteamLoginState.AwaitingCode awaiting:
+            @if (awaiting.PreviousCodeWasWrong)
+            {
+                <p class="error" role="alert">That code was wrong. Please try again.</p>
+            }
+            <form id="steam-guard" @onsubmit="SubmitCodeAsync">
+                <label for="steam-code">
+                    @(awaiting.Kind == SteamGuardCodeKind.Email
+                        ? $"Steam Guard code sent to {awaiting.EmailHint ?? "your e-mail address"}"
+                        : "Steam Guard code from the Steam Mobile app")
+                </label>
+                <input id="steam-code" autocomplete="one-time-code" autocapitalize="characters" @bind="_code" />
+                <button type="submit">Continue</button>
+            </form>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
+
+        case SteamLoginState.Connecting:
+            <p role="status">Connecting to Steam…</p>
+            break;
+
+        case SteamLoginState.AwaitingDeviceConfirmation:
+            <p role="status">Approve this sign-in in the Steam Mobile app.</p>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
+
+        case SteamLoginState.ShowingQrCode qr:
+            <p role="status">Scan this code with the Steam Mobile app.</p>
+            <div id="steam-qr" data-challenge="@qr.ChallengeUrl">@QrSvg(qr.ChallengeUrl)</div>
+            <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>
+            break;
+
+        case SteamLoginState.SignedIn signedIn:
+            <p data-testid="steam-account">Signed in as <strong>@signedIn.AccountName</strong>.</p>
+            <button id="steam-sign-out" type="button" @onclick="SignOutAsync">Sign out</button>
+            break;
+    }
+</section>
+
+@code {
+    private string _username = "";
+    private string _password = "";
+    private string _code = "";
+
+    protected override void OnInitialized() => Login.StateChanged += OnStateChanged;
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task StartCredentialsAsync()
+    {
+        var password = _password;
+        _password = ""; // don't keep it around in the circuit
+        await Login.StartCredentialsLoginAsync(_username, password, CancellationToken.None);
+    }
+
+    private async Task SubmitCodeAsync()
+    {
+        var code = _code.Trim();
+        _code = "";
+        await Login.SubmitCodeAsync(code);
+    }
+
+    private Task SignOutAsync() => Login.SignOutAsync(CancellationToken.None);
+
+    private static MarkupString QrSvg(string content)
+    {
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(content, QRCodeGenerator.ECCLevel.M);
+        return new MarkupString(new SvgQRCode(data).GetGraphic(6));
+    }
+
+    private Task StartQrAsync() => Login.StartQrLoginAsync(CancellationToken.None);
+
+    public void Dispose() => Login.StateChanged -= OnStateChanged;
+}

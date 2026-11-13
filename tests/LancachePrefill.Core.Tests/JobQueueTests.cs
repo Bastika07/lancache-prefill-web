@@ -123,6 +123,22 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_queue_lists_its_jobs_in_enqueue_order_so_a_reloaded_page_finds_them_again()
+    {
+        var steam = new FakeModule("steam");
+        var epic = new FakeModule("epic");
+        var queue = CreateQueue(steam, epic);
+
+        var first = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var second = queue.Enqueue("epic", new PrefillRequest(["fortnite"]));
+        var third = queue.Enqueue("steam", new PrefillRequest(["570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        Assert.Equal([first, second, third], queue.Jobs);
+        Assert.Equal([JobState.Running, JobState.Queued, JobState.Queued], queue.Jobs.Select(j => j.State));
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));

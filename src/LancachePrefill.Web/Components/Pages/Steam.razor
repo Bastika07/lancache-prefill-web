@@ -1,0 +1,81 @@
+@page "/steam"
+@rendermode InteractiveServer
+@using LancachePrefill.Core
+@using LancachePrefill.Modules.Steam
+@using LancachePrefill.Web.Components.Steam
+@implements IDisposable
+@inject JobQueue Queue
+@inject ISteamLogin Login
+
+<PageTitle>Steam · Lancache Prefill</PageTitle>
+
+<h1>Steam</h1>
+
+<SteamLoginDialog />
+
+@if (Login.State is SteamLoginState.SignedIn)
+{
+    @* Temporary until Selections (#10) and the Job view (#7): prefill app ids right now. *@
+    <section aria-labelledby="prefill-now-heading">
+        <h2 id="prefill-now-heading">Prefill now</h2>
+        <form @onsubmit="Enqueue">
+            <label for="app-ids">Steam app ids (comma separated)</label>
+            <input id="app-ids" @bind="_appIds" placeholder="e.g. 440, 570" />
+            <label><input type="checkbox" @bind="_force" /> Force (download even if up to date)</label>
+            <button type="submit">Prefill</button>
+        </form>
+        @if (LatestJob is { } job)
+        {
+            <dl data-testid="job-status">
+                <dt>State</dt><dd>@job.State</dd>
+                @if (job.Progress is { } p)
+                {
+                    <dt>Progress</dt>
+                    <dd>@p.Phase @p.CurrentGameId @(p.BytesTotal > 0 ? $"{p.BytesDone / 1_048_576.0:F1} / {p.BytesTotal / 1_048_576.0:F1} MiB" : "")</dd>
+                }
+                @if (job.FailureReason is { } reason)
+                {
+                    <dt>Error</dt><dd>@reason</dd>
+                }
+            </dl>
+            @if (job.Result is { } result)
+            {
+                <ul>
+                    @foreach (var game in result.Games)
+                    {
+                        <li>@game.GameId: @game.Status @(game.BytesDownloaded > 0 ? $"({game.BytesDownloaded / 1_048_576.0:F1} MiB)" : "") @game.FailureReason</li>
+                    }
+                </ul>
+            }
+        }
+    </section>
+}
+
+@code {
+    private string _appIds = "";
+    private bool _force;
+
+    // The queue outlives the page, so a reload still shows the latest Steam Job.
+    private Job? LatestJob => Queue.Jobs.LastOrDefault(j => j.ModuleId == SteamPrefillModule.ModuleId);
+    private Timer? _refresh;
+
+    protected override void OnInitialized()
+    {
+        Login.StateChanged += Refresh;
+        _refresh = new Timer(_ => Refresh(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    private void Enqueue()
+    {
+        var ids = _appIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Queue.Enqueue(SteamPrefillModule.ModuleId, new PrefillRequest(ids, _force));
+    }
+
+    public void Dispose()
+    {
+        Login.StateChanged -= Refresh;
+        _refresh?.Dispose();
+    }
+}
