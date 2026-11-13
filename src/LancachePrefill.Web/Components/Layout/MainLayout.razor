@@ -1,6 +1,27 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
 
-@Body
+<AuthorizeView>
+    <Authorized>
+        <header class="app-header">
+            <span class="brand">🎮 Lancache Prefill</span>
+            <nav aria-label="Main">
+                <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+                <NavLink href="steam">Steam</NavLink>
+            </nav>
+            <form method="post" action="/logout" class="inline">
+                <AntiforgeryToken />
+                <button type="submit" class="sign-out">Sign out</button>
+            </form>
+        </header>
+        <main class="container">
+            @Body
+        </main>
+    </Authorized>
+    <NotAuthorized>
+        @Body
+    </NotAuthorized>
+</AuthorizeView>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

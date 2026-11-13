@@ -26,12 +26,10 @@
     }
 </section>
 
-<p><a href="/steam">Steam account and prefill</a></p>
-
-<form method="post" action="/logout">
-    <AntiforgeryToken />
-    <button type="submit">Sign out</button>
-</form>
+<section aria-labelledby="modules-heading">
+    <h2 id="modules-heading">Modules</h2>
+    <p><a href="/steam">Steam account and prefill →</a></p>
+</section>
 
 @code {
     private LancacheStatus? _status;
