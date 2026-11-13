@@ -32,8 +32,15 @@
     }
 
     <div class="selection-games">
-        <input id="game-search" type="search" placeholder="Search by name or id" autocomplete="off"
-               value="@_search" @oninput="e => _search = e.Value?.ToString() ?? string.Empty" />
+        <div class="selection-toolbar">
+            <input id="game-search" type="search" placeholder="Search by name or id" autocomplete="off"
+                   value="@_search" @oninput="e => _search = e.Value?.ToString() ?? string.Empty" />
+            <label><input type="checkbox" id="only-selected" @bind="_onlySelected" /> Only selected</label>
+            @if (_games is not null)
+            {
+                <span class="muted" data-testid="selected-count">@_selected.Count(_known.Contains) of @_games.Count selected</span>
+            }
+        </div>
 
         @if (_games is null)
         {
@@ -41,6 +48,13 @@
         }
         else
         {
+            @foreach (var id in _selected.Where(id => !_known.Contains(id)).ToList())
+            {
+                <p class="warning" data-testid="unavailable-game">
+                    Game @id is selected but no longer available (not owned or not prefillable).
+                    <button type="button" @onclick="() => ToggleGame(id, false)">Remove</button>
+                </p>
+            }
             <ul class="game-list">
                 @foreach (var game in Visible())
                 {
@@ -78,6 +92,8 @@
     [Parameter, EditorRequired] public IPrefillModule Module { get; set; } = default!;
 
     private IReadOnlyList<GameInfo>? _games;
+    private HashSet<string> _known = [];
+    private bool _onlySelected;
     private string _search = string.Empty;
     private readonly List<string> _selected = [];
     private readonly HashSet<SelectionRuleKind> _rules = [];
@@ -107,14 +123,15 @@
         }
         var games = await Module.ListGamesAsync(CancellationToken.None);
         _games = [.. games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)];
+        _known = [.. games.Select(g => g.Id)];
     }
 
     private IEnumerable<GameInfo> Visible()
     {
         var search = _search.Trim();
-        return _games!.Where(g => search.Length == 0
+        return _games!.Where(g => (!_onlySelected || _selected.Contains(g.Id)) && (search.Length == 0
             || g.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
-            || g.Id.Contains(search, StringComparison.OrdinalIgnoreCase));
+            || g.Id.Contains(search, StringComparison.OrdinalIgnoreCase)));
     }
 
     private void ToggleGame(string id, bool selected)

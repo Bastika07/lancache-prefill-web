@@ -114,5 +114,53 @@ public sealed class SelectionEditorTests : IAsyncDisposable
         editor.WaitForAssertion(() => Assert.True(editor.Find("button.prefill-now").IsDisabled()), Wait);
     }
 
+    [Fact]
+    public void Saved_games_the_module_no_longer_lists_are_shown_and_can_be_removed()
+    {
+        _store.Saved["steam"] = new Selection(["570", "99999"], []);
+        var editor = Render();
+
+        var unavailable = editor.WaitForElement("[data-testid=unavailable-game]", Wait);
+        Assert.Contains("99999", unavailable.TextContent, StringComparison.Ordinal);
+        unavailable.QuerySelector("button")!.Click();
+        editor.Find("button.save-selection").Click();
+
+        editor.WaitForAssertion(() => Assert.Equal(["570"], _store.Saved["steam"].GameIds), Wait);
+        Assert.Empty(editor.FindAll("[data-testid=unavailable-game]"));
+    }
+
+    [Fact]
+    public void Only_selected_shows_just_the_picked_games()
+    {
+        _store.Saved["steam"] = new Selection(["570", "440"], []);
+        var editor = Render();
+        editor.WaitForAssertion(() => Assert.Equal(4, GameNames(editor).Count), Wait);
+
+        editor.Find("#only-selected").Change(true);
+
+        Assert.Equal(["Dota 2", "Team Fortress 2"], GameNames(editor));
+        Assert.Contains("2 of 4 selected", editor.Find("[data-testid=selected-count]").TextContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void While_the_games_load_it_says_so()
+    {
+        var slow = new SlowCatalog();
+        var editor = _ctx.Render<SelectionEditor>(p => p.Add(c => c.Module, slow));
+
+        Assert.Contains("Loading", editor.Find("[role=status]").TextContent, StringComparison.Ordinal);
+        slow.Games.SetResult([new GameInfo("730", "Counter-Strike 2")]);
+        editor.WaitForAssertion(() => Assert.Equal(["Counter-Strike 2"], GameNames(editor)), Wait);
+    }
+
+    private sealed class SlowCatalog : IPrefillModule
+    {
+        public TaskCompletionSource<IReadOnlyList<GameInfo>> Games { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string Id => "steam";
+        public string DisplayName => "Steam";
+        public Task<IReadOnlyList<GameInfo>> ListGamesAsync(CancellationToken ct) => Games.Task;
+        public Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct) => Task.FromResult(PrefillResult.Empty);
+    }
+
     public async ValueTask DisposeAsync() => await _ctx.DisposeAsync();
 }
