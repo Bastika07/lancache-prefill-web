@@ -9,6 +9,9 @@ using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Everything logged while a Job runs also lands in that Job's log (shown in the UI, kept in the history).
+builder.Logging.AddProvider(new JobLogProvider());
+
 // Every registered Module's id; used to seed the default Schedule without resolving the Modules
 // (they depend on the database themselves).
 string[] moduleIds = [SteamPrefillModule.ModuleId];
@@ -31,6 +34,7 @@ builder.Services.AddSingleton(sp => PrefillDatabase.OpenAsync(
 
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().Settings);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().AccountTokens);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().JobHistory);
 
 // Steam Module.
 builder.Services.AddSingleton<SteamKitSession>();

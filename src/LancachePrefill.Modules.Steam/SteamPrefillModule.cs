@@ -65,6 +65,13 @@ public sealed class SteamPrefillModule(
         var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
 
         var outcomes = new List<GameOutcome>();
+        // Reported one by one, so a cancelled or failed Job still records the Games already done.
+        void Finished(GameOutcome outcome)
+        {
+            outcomes.Add(outcome);
+            progress.Report(PrefillProgress.GameFinished(outcome));
+        }
+
         var appIds = new List<uint>();
         foreach (var gameId in request.GameIds)
         {
@@ -74,7 +81,7 @@ public sealed class SteamPrefillModule(
             }
             else
             {
-                outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "Not a Steam app id."));
+                Finished(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "Not a Steam app id."));
             }
         }
 
@@ -82,9 +89,12 @@ public sealed class SteamPrefillModule(
         var planner = new SteamDownloadPlanner(steam, downloaded); // fresh per Job: current metadata
         var games = await planner.GetAvailableGamesAsync(appIds, ct);
         var available = games.Select(g => g.AppId).ToHashSet();
-        outcomes.AddRange(appIds.Distinct().Where(id => !available.Contains(id)).Select(id => new GameOutcome(
+        foreach (var unavailable in appIds.Distinct().Where(id => !available.Contains(id)).Select(id => new GameOutcome(
             id.ToString(CultureInfo.InvariantCulture), GameOutcomeStatus.Skipped,
-            FailureReason: "Not a prefillable game: not owned, not a game, a mod, or delisted.")));
+            FailureReason: "Not a prefillable game: not owned, not a game, a mod, or delisted.")))
+        {
+            Finished(unavailable);
+        }
 
         IReadOnlyList<CdnServer>? cdnServers = null;
         foreach (var game in games)
@@ -98,10 +108,10 @@ public sealed class SteamPrefillModule(
                 switch (plan.Status)
                 {
                     case SteamPlanStatus.NothingToDownload:
-                        outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "The settings filtered out every depot."));
+                        Finished(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "The settings filtered out every depot."));
                         continue;
                     case SteamPlanStatus.UpToDate:
-                        outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.UpToDate));
+                        Finished(new GameOutcome(gameId, GameOutcomeStatus.UpToDate));
                         continue;
                 }
 
@@ -115,19 +125,19 @@ public sealed class SteamPrefillModule(
                 if (result.Succeeded)
                 {
                     await planner.MarkDownloadedAsync(plan, ct);
-                    outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.Downloaded, BytesDownloaded: total));
+                    Finished(new GameOutcome(gameId, GameOutcomeStatus.Downloaded, BytesDownloaded: total));
                 }
                 else
                 {
                     var first = result.Failures[0];
-                    outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.Failed,
+                    Finished(new GameOutcome(gameId, GameOutcomeStatus.Failed,
                         FailureReason: $"{result.Failures.Count} of {plan.Chunks.Count} chunks failed, e.g. depot {first.Chunk.DepotId} chunk {first.Chunk.ChunkId}: {first.Error.Message}"));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // One broken app must not stop the others (upstream: "Skipping app...").
-                outcomes.Add(new GameOutcome(gameId, GameOutcomeStatus.Failed, FailureReason: ex.Message));
+                Finished(new GameOutcome(gameId, GameOutcomeStatus.Failed, FailureReason: ex.Message));
             }
         }
         return new PrefillResult(outcomes);
