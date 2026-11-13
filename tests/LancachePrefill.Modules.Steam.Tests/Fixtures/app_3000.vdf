@@ -1,0 +1,5 @@
+"3000"
+{
+	"common" { "name" "Example Tool" "type" "Tool" "releasestate" "released" }
+	"depots" { "3001" { "name" "Tool" "manifests" { "public" { "gid" "6001" } } } }
+}

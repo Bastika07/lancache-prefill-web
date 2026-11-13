@@ -1,0 +1,13 @@
+"1200"
+{
+	"common" { "name" "Example Game - Expansion" "type" "DLC" "parent" "1000" }
+	"depots"
+	{
+		"1201"
+		{
+			"name"		"Expansion"
+			"dlcappid"		"1200"
+			"manifests" { "public" { "gid" "5201" } }
+		}
+	}
+}

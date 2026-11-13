@@ -1,0 +1,5 @@
+"3300"
+{
+	"common" { "name" "Another Game" "type" "Game" "releasestate" "released" }
+	"depots" { "3301" { "name" "Another Game Content" "manifests" { "public" { "gid" "6301" } } } }
+}

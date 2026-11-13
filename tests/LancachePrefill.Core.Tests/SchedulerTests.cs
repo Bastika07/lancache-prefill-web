@@ -111,7 +111,8 @@ public sealed class SchedulerTests : IAsyncDisposable
 
         _time.Advance(TimeSpan.FromHours(3));
         await Eventually(() => scheduler.Firings.Count == 1);
-        Assert.Single(steam.Runs);
+        // The firing is recorded on enqueue; the Job queue starts the Job asynchronously.
+        await Eventually(() => steam.Runs.Count == 1);
         Assert.Empty(epic.Runs);
 
         _time.Advance(TimeSpan.FromHours(3));

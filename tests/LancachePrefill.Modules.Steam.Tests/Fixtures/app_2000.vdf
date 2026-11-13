@@ -1,0 +1,12 @@
+"2000"
+{
+	"common" { "name" "Shared Runtime" "type" "Tool" }
+	"depots"
+	{
+		"1008"
+		{
+			"name"		"Shared Runtime"
+			"manifests" { "public" { "gid" "5008" } }
+		}
+	}
+}
