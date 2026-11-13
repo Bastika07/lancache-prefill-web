@@ -121,9 +121,20 @@
                 _topCount = rule.Count;
             }
         }
+    }
+
+    // Only once interactive: during prerendering the page would wait for the whole Game list
+    // (seconds for a big Steam library) before sending anything.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
         var games = await Module.ListGamesAsync(CancellationToken.None);
         _games = [.. games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)];
         _known = [.. games.Select(g => g.Id)];
+        StateHasChanged();
     }
 
     private IEnumerable<GameInfo> Visible()
