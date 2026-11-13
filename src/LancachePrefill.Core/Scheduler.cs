@@ -55,6 +55,9 @@ public sealed partial class Scheduler
         get { lock (_firingsLock) { return [.. _firings]; } }
     }
 
+    /// <summary>The time zone cron expressions are read in.</summary>
+    public TimeZoneInfo TimeZone => _timeZone;
+
     /// <summary>The Schedules currently in effect.</summary>
     public IReadOnlyList<Schedule> Schedules
     {

@@ -1,0 +1,233 @@
+@using System.Globalization
+@using LancachePrefill.Core
+@using LancachePrefill.Core.Persistence
+@inject IScheduleStore Store
+@inject Scheduler Scheduler
+@inject TimeProvider Time
+@inject IEnumerable<IPrefillModule> Modules
+
+<section class="schedule-editor" aria-labelledby="schedules-heading">
+    <h2 id="schedules-heading">Saved Schedules</h2>
+    <p class="muted">
+        Each Schedule prefills its Modules' saved Selections (updates only) at its cron times.
+        Times are in @Scheduler.TimeZone.Id.
+    </p>
+    @if (_schedules is null)
+    {
+        <p role="status">Loading Schedules…</p>
+    }
+    else if (_schedules.Count == 0)
+    {
+        <p class="muted">No Schedules. Nothing is prefilled automatically.</p>
+    }
+    else
+    {
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Name</th><th>Cron</th><th>Modules</th><th>Next run</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var stored in _schedules)
+                {
+                    var schedule = stored.Schedule;
+                    <tr data-testid="schedule-row">
+                        <td>@schedule.Name</td>
+                        <td><code>@schedule.Cron</code></td>
+                        <td>@ModuleNames(schedule.ModuleIds)</td>
+                        <td>@NextRun(schedule.Cron)</td>
+                        <td class="actions">
+                            <button type="button" class="run-now" @onclick="() => RunNowAsync(schedule)">Run now</button>
+                            <button type="button" class="edit" @onclick="() => Edit(stored)">Edit</button>
+                            <button type="button" class="delete" @onclick="() => DeleteAsync(stored)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+    @if (_runNowMessage is { } runNow)
+    {
+        <p role="status" data-testid="run-now-result">@runNow</p>
+    }
+</section>
+
+<section class="schedule-editor" aria-labelledby="schedule-form-heading">
+    <h2 id="schedule-form-heading">@(_editingId is null ? "New Schedule" : $"Edit “{_editingName}”")</h2>
+    <form id="schedule-form" @onsubmit="SaveAsync">
+        <label for="schedule-name">Name</label>
+        <input id="schedule-name" value="@_name" @onchange="e => _name = e.Value?.ToString() ?? string.Empty" />
+
+        <label for="schedule-cron">Cron (minute hour day-of-month month day-of-week)</label>
+        <input id="schedule-cron" class="mono" value="@_cron" @oninput="e => _cron = e.Value?.ToString() ?? string.Empty" />
+        <p class="muted" data-testid="cron-preview">
+            @if (Schedule.TryGetNextOccurrences(_cron, Time.GetUtcNow(), Scheduler.TimeZone, PreviewCount, out var preview))
+            {
+                @(preview.Count == 0 ? "Never runs." : "Next runs: " + string.Join(" · ", preview.Select(Format)))
+            }
+            else
+            {
+                @("Not a valid cron expression.")
+            }
+        </p>
+        <details class="muted">
+            <summary>Examples</summary>
+            <ul>
+                <li><code>0 3 * * *</code> every day at 03:00</li>
+                <li><code>30 6 * * 1-5</code> Monday to Friday at 06:30</li>
+                <li><code>0 */6 * * *</code> every 6 hours</li>
+                <li><code>0 4 * * 0</code> Sundays at 04:00</li>
+            </ul>
+        </details>
+
+        <fieldset>
+            <legend>Modules</legend>
+            @foreach (var module in Modules)
+            {
+                <label>
+                    <input type="checkbox" id="@($"schedule-module-{module.Id}")" checked="@_moduleIds.Contains(module.Id)"
+                           @onchange="e => ToggleModule(module.Id, e.Value is true)" />
+                    @module.DisplayName
+                </label>
+            }
+        </fieldset>
+
+        @if (_error is { } error)
+        {
+            <p class="error" role="alert">@error</p>
+        }
+        <button type="submit">@(_editingId is null ? "Add Schedule" : "Save Schedule")</button>
+        @if (_editingId is not null)
+        {
+            <button type="button" class="cancel-edit" @onclick="ResetForm">Cancel</button>
+        }
+    </form>
+</section>
+
+@code {
+    private const int PreviewCount = 3;
+    private const string DefaultCron = "0 3 * * *";
+
+    private IReadOnlyList<StoredSchedule>? _schedules;
+    private Guid? _editingId;
+    private string _editingName = "";
+    private string _name = "";
+    private string _cron = DefaultCron;
+    private readonly List<string> _moduleIds = [];
+    private string? _error;
+    private string? _runNowMessage;
+
+    protected override async Task OnInitializedAsync() => _schedules = await Store.GetAllAsync(CancellationToken.None);
+
+    private void ToggleModule(string id, bool enabled)
+    {
+        _moduleIds.Remove(id);
+        if (enabled)
+        {
+            _moduleIds.Add(id);
+        }
+    }
+
+    private void Edit(StoredSchedule stored)
+    {
+        _editingId = stored.Id;
+        _editingName = stored.Schedule.Name;
+        _name = stored.Schedule.Name;
+        _cron = stored.Schedule.Cron;
+        _moduleIds.Clear();
+        _moduleIds.AddRange(stored.Schedule.ModuleIds);
+        _error = null;
+    }
+
+    private void ResetForm()
+    {
+        _editingId = null;
+        _editingName = "";
+        _name = "";
+        _cron = DefaultCron;
+        _moduleIds.Clear();
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        var name = _name.Trim();
+        var cron = _cron.Trim();
+        _error = Validate(name, cron);
+        if (_error is not null)
+        {
+            return;
+        }
+        // Keep the Modules in display order, whatever order they were ticked in.
+        var schedule = new Schedule(name, cron, [.. Modules.Select(m => m.Id).Where(_moduleIds.Contains)]);
+        if (_editingId is { } id)
+        {
+            await Store.UpdateAsync(id, schedule, CancellationToken.None);
+        }
+        else
+        {
+            await Store.AddAsync(schedule, CancellationToken.None);
+        }
+        await ReloadAsync();
+        ResetForm();
+    }
+
+    private string? Validate(string name, string cron)
+    {
+        if (name.Length == 0)
+        {
+            return "Give the Schedule a name.";
+        }
+        if (_schedules!.Any(s => s.Id != _editingId && string.Equals(s.Schedule.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"A Schedule named “{name}” already exists.";
+        }
+        if (!Schedule.TryGetNextOccurrences(cron, Time.GetUtcNow(), Scheduler.TimeZone, 1, out _))
+        {
+            return "The cron expression is invalid. Use five fields: minute hour day-of-month month day-of-week.";
+        }
+        if (_moduleIds.Count == 0)
+        {
+            return "Choose at least one Module.";
+        }
+        return null;
+    }
+
+    private async Task DeleteAsync(StoredSchedule stored)
+    {
+        await Store.DeleteAsync(stored.Id, CancellationToken.None);
+        if (_editingId == stored.Id)
+        {
+            ResetForm();
+        }
+        await ReloadAsync();
+    }
+
+    private async Task RunNowAsync(Schedule schedule)
+    {
+        var firing = await Scheduler.RunNowAsync(schedule, CancellationToken.None);
+        var started = firing.Modules.Where(m => !m.Skipped).Select(m => m.ModuleId).ToList();
+        var skipped = firing.Modules.Where(m => m.Skipped).Select(m => m.ModuleId).ToList();
+        _runNowMessage = $"“{schedule.Name}”: "
+            + (started.Count > 0 ? $"queued {ModuleNames(started)}" : "nothing queued")
+            + (skipped.Count > 0 ? $"; skipped {ModuleNames(skipped)} (already queued or running, or its Selection was rejected)" : "")
+            + ". See Jobs.";
+    }
+
+    // The store is the source of truth; the Scheduler follows it at once.
+    private async Task ReloadAsync()
+    {
+        _schedules = await Store.GetAllAsync(CancellationToken.None);
+        Scheduler.ReplaceSchedules(_schedules.Select(s => s.Schedule));
+    }
+
+    private string ModuleNames(IEnumerable<string> ids) =>
+        string.Join(", ", ids.Select(id => Modules.FirstOrDefault(m => m.Id == id)?.DisplayName ?? id));
+
+    private string NextRun(string cron) =>
+        Schedule.TryGetNextOccurrences(cron, Time.GetUtcNow(), Scheduler.TimeZone, 1, out var next) && next.Count > 0
+            ? Format(next[0])
+            : "–";
+
+    private string Format(DateTimeOffset at) =>
+        TimeZoneInfo.ConvertTime(at, Scheduler.TimeZone).ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+}

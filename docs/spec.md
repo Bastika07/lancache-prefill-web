@@ -64,6 +64,7 @@ interface IPrefillModule
   - The Job queue resolves the rules when the Job starts: explicit Games first, then each rule's Games, duplicates dropped. Enqueueing a rule the Module doesn't support is rejected; a Schedule then skips that Module.
   - A rule that fails (e.g. an unreachable popularity service) becomes a Job warning, kept in the history; the Job fails only if a rule failed and no Game is left.
 - Schedules: any number, each a cron expression (Cronos) + set of Modules, run by a `BackgroundService` using `TimeProvider`. Firing enqueues one update-only Job per Module; a Module that already has a queued or running Job is skipped and the skip is recorded. Default: one nightly Schedule for all Modules.
+  - Managed on the `/schedules` page (add, edit, delete, preview of the next run times); changes take effect at once, without a restart. A Schedule edited after its time today waits for its next occurrence. *Run now* fires a Schedule immediately, exactly like its cron time would, and is recorded as a firing.
 - Job history: per-Game outcome, bytes, duration, average speed; pruned after 90 days.
 
 ## Out of scope for v1
@@ -75,9 +76,9 @@ Webhooks/notifications beyond the UI, importing CLI config files, multiple Accou
 Test-first, only at these seams:
 
 1. **Job queue** (Core) with a fake `IPrefillModule`: ordering, one-at-a-time, cancellation, skip rules, Job results. No network.
-2. **Scheduler** with `FakeTimeProvider`: cron firing, skip-on-overlap. No real waiting.
+2. **Scheduler** with `FakeTimeProvider`: cron firing, skip-on-overlap, replacing Schedules at runtime, run now. No real waiting.
 3. **Module parsers/planners** with recorded fixtures (Steam manifests, TACT indexes, Epic API responses): "what needs downloading". Not the login.
-4. **UI** with bUnit: login dialogs, the Job view, the Selection editor and Module settings forms. Pages that only compose these are not tested.
+4. **UI** with bUnit: login dialogs, the Job view, the Selection editor, the Schedule editor and Module settings forms. Pages that only compose these are not tested.
 
 No live tests against Steam, Battle.net or Epic in CI; a manual smoke test covers that.
 

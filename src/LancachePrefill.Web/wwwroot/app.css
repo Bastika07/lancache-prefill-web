@@ -231,3 +231,14 @@ p.warning button { margin-left: 8px; }
 .validation-message { color: var(--error); }
 .blazor-error-boundary { background: var(--error-bg); padding: 1rem; color: var(--text); }
 .blazor-error-boundary::after { content: "An error has occurred."; }
+
+/* Schedule editor */
+.table-scroll { overflow-x: auto; }
+.schedule-editor + .schedule-editor { margin-top: 24px; }
+.schedule-editor form { max-width: 520px; }
+.schedule-editor .actions { display: flex; gap: 8px; justify-content: flex-end; white-space: nowrap; }
+.schedule-editor .mono, .schedule-editor code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.schedule-editor details ul { margin-top: 6px; }
+.schedule-editor details li { padding: 4px 0; border-bottom: none; }
+.schedule-editor .cancel-edit { margin-left: 8px; }
+.schedule-editor td code { white-space: nowrap; }
