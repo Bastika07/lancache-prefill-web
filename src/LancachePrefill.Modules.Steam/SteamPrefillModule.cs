@@ -52,7 +52,8 @@ public sealed partial class SteamPrefillModule(
             SelectionRuleKind.TopPopular => [.. (await charts.GetMostPlayedAppIdsAsync(ct)).Take(rule.Count)],
             _ => throw new NotSupportedException($"Steam does not support the rule {rule}."),
         };
-        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(candidates, ct);
+        var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
+        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(candidates, steamSettings, ct);
         return [.. games.Select(g => g.AppId.ToString(CultureInfo.InvariantCulture))];
     }
 
@@ -90,7 +91,7 @@ public sealed partial class SteamPrefillModule(
 
         progress.Report(new PrefillProgress("Loading app metadata"));
         var planner = new SteamDownloadPlanner(steam, downloaded); // fresh per Job: current metadata
-        var games = await planner.GetAvailableGamesAsync(appIds, ct);
+        var games = await planner.GetAvailableGamesAsync(appIds, steamSettings, ct);
         var available = games.Select(g => g.AppId).ToHashSet();
         var operatingSystems = string.Join(", ", steamSettings.OperatingSystems);
         LogAvailable(logger, games.Count, appIds.Count, operatingSystems);

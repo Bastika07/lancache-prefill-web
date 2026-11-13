@@ -1,0 +1,5 @@
+"3400"
+{
+	"common" { "name" "Linux Only Game" "type" "Game" "releasestate" "released" "oslist" "linux" }
+	"depots" { "3401" { "name" "Linux Only Game Content" "config" { "oslist" "linux" } "manifests" { "public" { "gid" "6401" } } } }
+}
