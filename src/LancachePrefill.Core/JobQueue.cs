@@ -132,6 +132,10 @@ public sealed partial class JobQueue
                 var (request, warnings) = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
                 job.ResolvedGameIds = request.GameIds;
                 job.Warnings = warnings;
+                if (request.GameIds.Count == 0 && warnings.Count > 0)
+                {
+                    throw new InvalidOperationException(string.Join(" ", warnings));
+                }
                 var result = await module.PrefillAsync(request, new JobProgress(job), cancellation.Token);
                 job.MarkSucceeded(result, _time.GetUtcNow());
             }

@@ -191,6 +191,35 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task When_a_rule_failed_and_no_game_is_left_the_job_fails_without_running_its_module()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.FailingRules[SelectionRule.RecentlyPlayed] = new HttpRequestException("Steam Web API down");
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Failed, job.State);
+        Assert.Contains("Steam Web API down", job.FailureReason, StringComparison.Ordinal);
+        Assert.Empty(steam.Runs);
+    }
+
+    [Fact]
+    public async Task Rules_that_resolve_to_no_games_without_failing_still_run_the_module()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = [];
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Succeeded, job.State);
+        Assert.Empty(Assert.Single(steam.Runs).Request.GameIds);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));
