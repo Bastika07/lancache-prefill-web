@@ -85,6 +85,10 @@ namespace LancachePrefill.Core.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("WarningsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.HasKey("JobId");
 
                     b.HasIndex("FinishedAt");

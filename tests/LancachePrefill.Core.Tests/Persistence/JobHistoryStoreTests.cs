@@ -53,6 +53,22 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Selection_warnings_of_a_job_are_kept_across_a_restart()
+    {
+        var db = await _fixture.OpenAsync();
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.FailingRules[SelectionRule.TopPopular(5)] = new HttpRequestException("SteamCharts unreachable");
+        var queue = StartQueue(db, steam);
+
+        queue.Enqueue("steam", new PrefillRequest(["440"], Rules: [SelectionRule.TopPopular(5)]));
+        await EventuallyAsync(async () => (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 1);
+
+        var restarted = await _fixture.OpenAsync();
+        var warning = Assert.Single(Assert.Single(await restarted.JobHistory.GetRecentAsync(10, Ct)).Warnings);
+        Assert.Contains("SteamCharts unreachable", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Schedule_firings_including_skipped_modules_are_kept_across_a_restart()
     {
         var db = await _fixture.OpenAsync();
