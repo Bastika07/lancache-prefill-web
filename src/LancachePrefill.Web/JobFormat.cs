@@ -7,6 +7,9 @@ public static class JobFormat
 {
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
 
+    /// <summary>A Game's name, or its id when the Module gave no name (and in Jobs recorded before names existed).</summary>
+    public static string Game(string? id, string? name) => string.IsNullOrWhiteSpace(name) ? id ?? "" : name;
+
     public static string Bytes(long bytes) => bytes switch
     {
         >= 1L << 30 => string.Format(Culture, "{0:F1} GiB", bytes / (double)(1L << 30)),

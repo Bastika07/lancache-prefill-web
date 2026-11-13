@@ -63,12 +63,13 @@ public sealed record SelectionRule(SelectionRuleKind Kind, int Count = 0)
 /// Module-neutral progress report. A Module reports each finished Game with <see cref="GameFinished"/>,
 /// so a cancelled or failed Job still knows which Games were done.
 /// </summary>
-public sealed record PrefillProgress(string Phase, string? CurrentGameId = null, long BytesDone = 0, long BytesTotal = 0)
+public sealed record PrefillProgress(
+    string Phase, string? CurrentGameId = null, long BytesDone = 0, long BytesTotal = 0, string? CurrentGameName = null)
 {
     public GameOutcome? FinishedGame { get; init; }
 
     public static PrefillProgress GameFinished(GameOutcome outcome) =>
-        new("Finished", outcome.GameId) { FinishedGame = outcome };
+        new("Finished", outcome.GameId, CurrentGameName: outcome.GameName) { FinishedGame = outcome };
 }
 
 /// <summary>Per-Game outcome of a prefill. See GLOSSARY.md → Job result.</summary>
@@ -77,7 +78,9 @@ public sealed record PrefillResult(IReadOnlyList<GameOutcome> Games)
     public static PrefillResult Empty { get; } = new([]);
 }
 
-public sealed record GameOutcome(string GameId, GameOutcomeStatus Status, long BytesDownloaded = 0, string? FailureReason = null);
+/// <param name="GameName">Display name, when the Module knows it; the UI falls back to the id.</param>
+public sealed record GameOutcome(
+    string GameId, GameOutcomeStatus Status, long BytesDownloaded = 0, string? FailureReason = null, string? GameName = null);
 
 public enum GameOutcomeStatus
 {

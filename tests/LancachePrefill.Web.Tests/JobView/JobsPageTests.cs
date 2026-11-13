@@ -32,14 +32,14 @@ public sealed class JobsPageTests : IAsyncDisposable
         var page = _ctx.Render<Jobs>();
         page.WaitForAssertion(() => Assert.Single(_steam.Runs), Wait);
 
-        _steam.Runs[0].Progress.Report(new PrefillProgress("Downloading", "440", BytesDone: 50 * 1_048_576L, BytesTotal: 200 * 1_048_576L));
+        _steam.Runs[0].Progress.Report(new PrefillProgress("Downloading", "440", BytesDone: 50 * 1_048_576L, BytesTotal: 200 * 1_048_576L, CurrentGameName: "Team Fortress 2"));
 
         page.WaitForAssertion(() =>
         {
             var rows = page.FindAll("[data-testid=active-job]");
             Assert.Equal(2, rows.Count);
             Assert.Contains("Running", rows[0].TextContent, StringComparison.Ordinal);
-            Assert.Contains("Downloading 440", rows[0].TextContent, StringComparison.Ordinal);
+            Assert.Contains("Downloading Team Fortress 2", rows[0].TextContent, StringComparison.Ordinal);
             Assert.Contains("50.0 MiB / 200.0 MiB", rows[0].TextContent, StringComparison.Ordinal);
             Assert.Equal("25", rows[0].QuerySelector("progress")?.GetAttribute("value"));
             Assert.Contains("Queued", rows[1].TextContent, StringComparison.Ordinal);

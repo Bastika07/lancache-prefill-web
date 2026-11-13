@@ -142,16 +142,16 @@ public sealed partial class SteamPrefillModule(
             var gameId = game.AppId.ToString(CultureInfo.InvariantCulture);
             try
             {
-                progress.Report(new PrefillProgress("Planning", gameId));
+                progress.Report(new PrefillProgress("Planning", gameId, CurrentGameName: game.Name));
                 var plan = await planner.PlanAsync(game, steamSettings, request.Force, ct);
                 LogPlanned(logger, gameId, game.Name, plan.Status, plan.Depots.Count, plan.Chunks.Count, plan.TotalBytes / 1_048_576.0);
                 switch (plan.Status)
                 {
                     case SteamPlanStatus.NothingToDownload:
-                        Finished(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "The settings filtered out every depot."));
+                        Finished(new GameOutcome(gameId, GameOutcomeStatus.Skipped, FailureReason: "The settings filtered out every depot.", GameName: game.Name));
                         continue;
                     case SteamPlanStatus.UpToDate:
-                        Finished(new GameOutcome(gameId, GameOutcomeStatus.UpToDate));
+                        Finished(new GameOutcome(gameId, GameOutcomeStatus.UpToDate, GameName: game.Name));
                         continue;
                 }
 
@@ -160,24 +160,24 @@ public sealed partial class SteamPrefillModule(
                 long done = 0;
                 // Retries report their chunks again; cap so progress never passes 100 %.
                 var bytes = new SyncProgress<long>(n =>
-                    progress.Report(new PrefillProgress("Downloading", gameId, Math.Min(Interlocked.Add(ref done, n), total), total)));
+                    progress.Report(new PrefillProgress("Downloading", gameId, Math.Min(Interlocked.Add(ref done, n), total), total, game.Name)));
                 var result = await downloader.DownloadAsync(plan.Chunks, found.Address, cdnServers, steamSettings.MaxConcurrentRequests, bytes, ct);
                 if (result.Succeeded)
                 {
                     await planner.MarkDownloadedAsync(plan, ct);
-                    Finished(new GameOutcome(gameId, GameOutcomeStatus.Downloaded, BytesDownloaded: total));
+                    Finished(new GameOutcome(gameId, GameOutcomeStatus.Downloaded, BytesDownloaded: total, GameName: game.Name));
                 }
                 else
                 {
                     var first = result.Failures[0];
                     Finished(new GameOutcome(gameId, GameOutcomeStatus.Failed,
-                        FailureReason: $"{result.Failures.Count} of {plan.Chunks.Count} chunks failed, e.g. depot {first.Chunk.DepotId} chunk {first.Chunk.ChunkId}: {first.Error.Message}"));
+                        FailureReason: $"{result.Failures.Count} of {plan.Chunks.Count} chunks failed, e.g. depot {first.Chunk.DepotId} chunk {first.Chunk.ChunkId}: {first.Error.Message}", GameName: game.Name));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // One broken app must not stop the others (upstream: "Skipping app...").
-                Finished(new GameOutcome(gameId, GameOutcomeStatus.Failed, FailureReason: ex.Message));
+                Finished(new GameOutcome(gameId, GameOutcomeStatus.Failed, FailureReason: ex.Message, GameName: game.Name));
             }
         }
         return new PrefillResult(outcomes);

@@ -54,6 +54,28 @@ public sealed class JobDetailPageTests : IAsyncDisposable
     }
 
     [Fact]
+    public void Games_and_the_current_game_are_shown_by_name_and_by_id_when_the_module_gave_no_name()
+    {
+        var job = _queue.Enqueue("steam", new PrefillRequest(["440", "570", "999"]));
+        var page = Render(job.Id);
+        page.WaitForAssertion(() => Assert.Single(_steam.Runs), Wait);
+
+        _steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(
+            new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1, GameName: "Team Fortress 2")));
+        _steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("999", GameOutcomeStatus.Skipped)));
+        _steam.Runs[0].Progress.Report(new PrefillProgress("Downloading", "570", 1, 4, CurrentGameName: "Dota 2"));
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Downloading Dota 2", page.Find("[data-testid=job-progress]").TextContent, StringComparison.Ordinal);
+            var games = page.FindAll("[data-testid=game] td:first-child").Select(td => td.TextContent.Trim()).ToList();
+            Assert.Equal(2, games.Count);
+            Assert.StartsWith("Team Fortress 2", games[0], StringComparison.Ordinal);
+            Assert.Equal("999", games[1]);
+        }, Wait);
+    }
+
+    [Fact]
     public void A_job_from_the_history_shows_its_outcome_figures_warnings_failure_and_log()
     {
         var started = new DateTimeOffset(2026, 11, 12, 3, 0, 0, TimeSpan.Zero);
