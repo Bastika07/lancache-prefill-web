@@ -1,0 +1,54 @@
+@page "/jobs"
+@rendermode InteractiveServer
+@using LancachePrefill.Core
+@implements IDisposable
+@inject JobQueue Queue
+
+<PageTitle>Jobs · Lancache Prefill</PageTitle>
+
+<h1>Jobs</h1>
+
+<section aria-labelledby="queue-heading">
+    <h2 id="queue-heading">Queue</h2>
+    @{ var active = Queue.Jobs.Where(j => j.State is JobState.Queued or JobState.Running).ToList(); }
+    @if (active.Count == 0)
+    {
+        <p class="muted">Nothing queued.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Module</th><th>State</th><th>Progress</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var job in active)
+                {
+                    <tr data-testid="active-job">
+                        <td><a href="@($"jobs/{job.Id}")">@job.ModuleId</a></td>
+                        <td><span class="badge @(job.State == JobState.Running ? "badge-info" : "")">@job.State</span></td>
+                        <td>
+                            @if (job.Progress is { } p)
+                            {
+                                <div>@p.Phase @p.CurrentGameId</div>
+                                @if (p.BytesTotal > 0)
+                                {
+                                    <progress max="100" value="@JobFormat.Percent(p.BytesDone, p.BytesTotal)"></progress>
+                                    <span class="muted">@JobFormat.Bytes(p.BytesDone) / @JobFormat.Bytes(p.BytesTotal)</span>
+                                }
+                            }
+                        </td>
+                        <td></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private Timer? _refresh;
+
+    protected override void OnInitialized() =>
+        _refresh = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+    public void Dispose() => _refresh?.Dispose();
+}
