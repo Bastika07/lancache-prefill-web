@@ -129,8 +129,9 @@ public sealed partial class JobQueue
             try
             {
                 var module = _modules[job.ModuleId];
-                var request = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
+                var (request, warnings) = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
                 job.ResolvedGameIds = request.GameIds;
+                job.Warnings = warnings;
                 var result = await module.PrefillAsync(request, new JobProgress(job), cancellation.Token);
                 job.MarkSucceeded(result, _time.GetUtcNow());
             }
@@ -161,19 +162,31 @@ public sealed partial class JobQueue
         }
     }
 
-    /// <summary>Explicit Games first, then each rule's Games in rule order; duplicates dropped.</summary>
-    private static async Task<PrefillRequest> ResolveSelectionAsync(IPrefillModule module, PrefillRequest request, CancellationToken ct)
+    /// <summary>
+    /// Explicit Games first, then each rule's Games in rule order; duplicates dropped.
+    /// A rule that fails becomes a warning so one unreachable service doesn't sink the whole Job.
+    /// </summary>
+    private static async Task<(PrefillRequest Request, IReadOnlyList<string> Warnings)> ResolveSelectionAsync(
+        IPrefillModule module, PrefillRequest request, CancellationToken ct)
     {
         var gameIds = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var warnings = new List<string>();
         void Add(IEnumerable<string> ids) => gameIds.AddRange(ids.Where(seen.Add));
 
         Add(request.GameIds);
         foreach (var rule in request.Rules)
         {
-            Add(await module.ResolveRuleAsync(rule, ct));
+            try
+            {
+                Add(await module.ResolveRuleAsync(rule, ct));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                warnings.Add($"Rule {rule} could not be resolved: {ex.Message}");
+            }
         }
-        return request with { GameIds = gameIds, Rules = [] };
+        return (request with { GameIds = gameIds, Rules = [] }, warnings);
     }
 
     private async Task NotifyFinishedAsync(Job job, CancellationToken ct)

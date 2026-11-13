@@ -35,6 +35,9 @@ public sealed class Job
     /// <summary>The Games the Module was asked for after resolving the Selection rules; null until the Job starts.</summary>
     public IReadOnlyList<string>? ResolvedGameIds { get; internal set; }
 
+    /// <summary>Problems that did not stop the Job, e.g. a dynamic rule that could not be resolved.</summary>
+    public IReadOnlyList<string> Warnings { get; internal set; } = [];
+
     /// <summary>Latest progress reported by the Module; null until the first report.</summary>
     public PrefillProgress? Progress => Volatile.Read(ref _progress);
     private PrefillProgress? _progress;

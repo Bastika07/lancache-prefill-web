@@ -155,6 +155,42 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Rules_are_resolved_when_the_job_starts_not_when_it_is_enqueued()
+    {
+        var steam = new FakeModule("steam");
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = ["440"];
+        var queue = CreateQueue(steam);
+        queue.Enqueue("steam", new PrefillRequest(["10"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        Assert.Null(job.ResolvedGameIds);
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = ["570"];
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        await Eventually(() => steam.Runs.Count == 2);
+
+        Assert.Equal(["570"], steam.Runs[1].Request.GameIds);
+    }
+
+    [Fact]
+    public async Task A_failing_rule_becomes_a_warning_and_the_job_prefills_the_remaining_games()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.AllOwned] = ["570"];
+        steam.FailingRules[SelectionRule.TopPopular(10)] = new HttpRequestException("SteamCharts unreachable");
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"], Rules: [SelectionRule.TopPopular(10), SelectionRule.AllOwned]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Succeeded, job.State);
+        Assert.Equal(["440", "570"], Assert.Single(steam.Runs).Request.GameIds);
+        var warning = Assert.Single(job.Warnings);
+        Assert.Contains("TopPopular(10)", warning, StringComparison.Ordinal);
+        Assert.Contains("SteamCharts unreachable", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));
