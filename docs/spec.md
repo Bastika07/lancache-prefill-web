@@ -60,7 +60,9 @@ interface IPrefillModule
 ## Jobs and Schedules
 
 - One global FIFO Job queue; at most one Job runs at a time, across all Modules. Queued and running Jobs can be cancelled.
-- Selections: explicit Games plus dynamic rules (*all owned*, *recently played*, *top N popular*), resolved when the Job starts.
+- Selections: explicit Games plus dynamic rules (*all owned*, *recently played*, *recently purchased*, *top N popular*), one saved Selection per Module.
+  - The Job queue resolves the rules when the Job starts: explicit Games first, then each rule's Games, duplicates dropped. Enqueueing a rule the Module doesn't support is rejected; a Schedule then skips that Module.
+  - A rule that fails (e.g. an unreachable popularity service) becomes a Job warning, kept in the history; the Job fails only if a rule failed and no Game is left.
 - Schedules: any number, each a cron expression (Cronos) + set of Modules, run by a `BackgroundService` using `TimeProvider`. Firing enqueues one update-only Job per Module; a Module that already has a queued or running Job is skipped and the skip is recorded. Default: one nightly Schedule for all Modules.
 - Job history: per-Game outcome, bytes, duration, average speed; pruned after 90 days.
 

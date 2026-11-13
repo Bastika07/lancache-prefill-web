@@ -13,8 +13,12 @@ public sealed record JobRecord(
     DateTimeOffset? StartedAt,
     DateTimeOffset FinishedAt,
     string? FailureReason,
-    IReadOnlyList<GameOutcome> Games)
+    IReadOnlyList<GameOutcome> Games,
+    IReadOnlyList<string>? Warnings = null)
 {
+    /// <summary>Problems that did not stop the Job, e.g. a Selection rule that could not be resolved.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = Warnings ?? [];
+
     public TimeSpan Duration => StartedAt is { } started ? FinishedAt - started : TimeSpan.Zero;
     public long BytesDownloaded => Games.Sum(g => g.BytesDownloaded);
     public long AverageBytesPerSecond => Duration > TimeSpan.Zero ? (long)(BytesDownloaded / Duration.TotalSeconds) : 0;
@@ -102,6 +106,7 @@ internal sealed class JobRecordEntity
     public DateTimeOffset FinishedAt { get; set; }
     public string? FailureReason { get; set; }
     public required string GamesJson { get; set; }
+    public string WarningsJson { get; set; } = "[]";
 
     public static JobRecordEntity From(Job job) => new()
     {
@@ -113,11 +118,13 @@ internal sealed class JobRecordEntity
         FinishedAt = job.FinishedAt ?? throw new InvalidOperationException($"Job {job.Id} has not finished."),
         FailureReason = job.FailureReason,
         GamesJson = JsonSerializer.Serialize(job.Result?.Games ?? [], Json),
+        WarningsJson = JsonSerializer.Serialize(job.Warnings),
     };
 
     public JobRecord ToRecord() => new(
         JobId, ModuleId, State, EnqueuedAt, StartedAt, FinishedAt, FailureReason,
-        JsonSerializer.Deserialize<List<GameOutcome>>(GamesJson, Json) ?? []);
+        JsonSerializer.Deserialize<List<GameOutcome>>(GamesJson, Json) ?? [],
+        JsonSerializer.Deserialize<List<string>>(WarningsJson));
 }
 
 internal sealed class FiringRecordEntity

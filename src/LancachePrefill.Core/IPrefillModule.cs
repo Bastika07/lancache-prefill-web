@@ -6,12 +6,52 @@ public interface IPrefillModule
     string Id { get; }
     string DisplayName { get; }
 
+    /// <summary>The dynamic Selection rules this Module can resolve. None by default.</summary>
+    IReadOnlySet<SelectionRuleKind> SupportedRules => new HashSet<SelectionRuleKind>();
+
+    /// <summary>Resolves one dynamic Selection rule to Game ids. Called by the Job queue when a Job starts.</summary>
+    Task<IReadOnlyList<string>> ResolveRuleAsync(SelectionRule rule, CancellationToken ct) =>
+        throw new NotSupportedException($"Module '{Id}' does not support the rule {rule}.");
+
     /// <summary>Prefills the requested Games through the Lancache and reports the per-Game outcome.</summary>
     Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct);
 }
 
-/// <summary>What one Job asks a Module to prefill.</summary>
-public sealed record PrefillRequest(IReadOnlyList<string> GameIds, bool Force = false);
+/// <summary>
+/// What one Job asks a Module to prefill: explicit Games plus dynamic rules (a Selection).
+/// The Job queue resolves the rules when the Job starts; the Module receives only resolved GameIds.
+/// </summary>
+public sealed record PrefillRequest(IReadOnlyList<string> GameIds, bool Force = false, IReadOnlyList<SelectionRule>? Rules = null)
+{
+    public IReadOnlyList<SelectionRule> Rules { get; init; } = Rules ?? [];
+}
+
+/// <summary>Which Games a Module prefills: explicit Games plus dynamic rules. See GLOSSARY.md → Selection.</summary>
+public sealed record Selection(IReadOnlyList<string> GameIds, IReadOnlyList<SelectionRule> Rules)
+{
+    public static Selection Empty { get; } = new([], []);
+
+    public PrefillRequest ToRequest(bool force = false) => new(GameIds, force, Rules);
+}
+
+public enum SelectionRuleKind
+{
+    AllOwned,
+    RecentlyPlayed,
+    RecentlyPurchased,
+    TopPopular,
+}
+
+/// <summary>A dynamic Selection rule. See GLOSSARY.md → Dynamic selection.</summary>
+public sealed record SelectionRule(SelectionRuleKind Kind, int Count = 0)
+{
+    public static SelectionRule AllOwned { get; } = new(SelectionRuleKind.AllOwned);
+    public static SelectionRule RecentlyPlayed { get; } = new(SelectionRuleKind.RecentlyPlayed);
+    public static SelectionRule RecentlyPurchased { get; } = new(SelectionRuleKind.RecentlyPurchased);
+    public static SelectionRule TopPopular(int count) => new(SelectionRuleKind.TopPopular, count);
+
+    public override string ToString() => Kind == SelectionRuleKind.TopPopular ? $"TopPopular({Count})" : Kind.ToString();
+}
 
 /// <summary>Module-neutral progress report.</summary>
 public sealed record PrefillProgress(string Phase, string? CurrentGameId = null, long BytesDone = 0, long BytesTotal = 0);

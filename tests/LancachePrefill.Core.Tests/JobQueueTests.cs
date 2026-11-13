@@ -139,6 +139,101 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Dynamic_rules_add_their_games_after_the_explicit_games_without_duplicates()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.AllOwned] = ["570", "440", "730"];
+        steam.RuleGames[SelectionRule.TopPopular(2)] = ["730", "578080"];
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "10"], Rules: [SelectionRule.AllOwned, SelectionRule.TopPopular(2)]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(steam.Runs).Request;
+        Assert.Equal(["440", "10", "570", "730", "578080"], request.GameIds);
+        Assert.Equal(["440", "10", "570", "730", "578080"], job.ResolvedGameIds);
+    }
+
+    [Fact]
+    public async Task Rules_are_resolved_when_the_job_starts_not_when_it_is_enqueued()
+    {
+        var steam = new FakeModule("steam");
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = ["440"];
+        var queue = CreateQueue(steam);
+        queue.Enqueue("steam", new PrefillRequest(["10"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        Assert.Null(job.ResolvedGameIds);
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = ["570"];
+        steam.Runs[0].Complete(PrefillResult.Empty);
+        await Eventually(() => steam.Runs.Count == 2);
+
+        Assert.Equal(["570"], steam.Runs[1].Request.GameIds);
+    }
+
+    [Fact]
+    public async Task A_failing_rule_becomes_a_warning_and_the_job_prefills_the_remaining_games()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.AllOwned] = ["570"];
+        steam.FailingRules[SelectionRule.TopPopular(10)] = new HttpRequestException("SteamCharts unreachable");
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"], Rules: [SelectionRule.TopPopular(10), SelectionRule.AllOwned]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Succeeded, job.State);
+        Assert.Equal(["440", "570"], Assert.Single(steam.Runs).Request.GameIds);
+        var warning = Assert.Single(job.Warnings);
+        Assert.Contains("TopPopular(10)", warning, StringComparison.Ordinal);
+        Assert.Contains("SteamCharts unreachable", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task When_a_rule_failed_and_no_game_is_left_the_job_fails_without_running_its_module()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.FailingRules[SelectionRule.RecentlyPlayed] = new HttpRequestException("Steam Web API down");
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Failed, job.State);
+        Assert.Contains("Steam Web API down", job.FailureReason, StringComparison.Ordinal);
+        Assert.Empty(steam.Runs);
+    }
+
+    [Fact]
+    public async Task Rules_that_resolve_to_no_games_without_failing_still_run_the_module()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.RecentlyPlayed] = [];
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest([], Rules: [SelectionRule.RecentlyPlayed]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Succeeded, job.State);
+        Assert.Empty(Assert.Single(steam.Runs).Request.GameIds);
+    }
+
+    [Fact]
+    public void A_rule_the_module_does_not_support_is_rejected_when_enqueued()
+    {
+        var battlenet = new FakeModule("battlenet");
+        battlenet.RuleGames[SelectionRule.AllOwned] = [];
+        var queue = CreateQueue(battlenet);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            queue.Enqueue("battlenet", new PrefillRequest([], Rules: [SelectionRule.AllOwned, SelectionRule.RecentlyPlayed])));
+
+        Assert.Contains("RecentlyPlayed", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(queue.Jobs);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));

@@ -39,9 +39,14 @@ public sealed partial class JobQueue
 
     public Job Enqueue(string moduleId, PrefillRequest request)
     {
-        if (!_modules.ContainsKey(moduleId))
+        if (!_modules.TryGetValue(moduleId, out var module))
         {
             throw new ArgumentException($"No Module with id '{moduleId}' is registered.", nameof(moduleId));
+        }
+        var supported = module.SupportedRules;
+        if (request.Rules.FirstOrDefault(r => !supported.Contains(r.Kind)) is { } unsupported)
+        {
+            throw new ArgumentException($"Module '{moduleId}' does not support the rule {unsupported}.", nameof(request));
         }
         var job = new Job(moduleId, request, _time.GetUtcNow());
         lock (_gate)
@@ -128,7 +133,15 @@ public sealed partial class JobQueue
             }
             try
             {
-                var result = await _modules[job.ModuleId].PrefillAsync(job.Request, new JobProgress(job), cancellation.Token);
+                var module = _modules[job.ModuleId];
+                var (request, warnings) = await ResolveSelectionAsync(module, job.Request, cancellation.Token);
+                job.ResolvedGameIds = request.GameIds;
+                job.Warnings = warnings;
+                if (request.GameIds.Count == 0 && warnings.Count > 0)
+                {
+                    throw new InvalidOperationException(string.Join(" ", warnings));
+                }
+                var result = await module.PrefillAsync(request, new JobProgress(job), cancellation.Token);
                 job.MarkSucceeded(result, _time.GetUtcNow());
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -156,6 +169,33 @@ public sealed partial class JobQueue
             }
             await NotifyFinishedAsync(job, stoppingToken);
         }
+    }
+
+    /// <summary>
+    /// Explicit Games first, then each rule's Games in rule order; duplicates dropped.
+    /// A rule that fails becomes a warning so one unreachable service doesn't sink the whole Job.
+    /// </summary>
+    private static async Task<(PrefillRequest Request, IReadOnlyList<string> Warnings)> ResolveSelectionAsync(
+        IPrefillModule module, PrefillRequest request, CancellationToken ct)
+    {
+        var gameIds = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var warnings = new List<string>();
+        void Add(IEnumerable<string> ids) => gameIds.AddRange(ids.Where(seen.Add));
+
+        Add(request.GameIds);
+        foreach (var rule in request.Rules)
+        {
+            try
+            {
+                Add(await module.ResolveRuleAsync(rule, ct));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                warnings.Add($"Rule {rule} could not be resolved: {ex.Message}");
+            }
+        }
+        return (request with { GameIds = gameIds, Rules = [] }, warnings);
     }
 
     private async Task NotifyFinishedAsync(Job job, CancellationToken ct)

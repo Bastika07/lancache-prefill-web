@@ -16,6 +16,21 @@ internal sealed class FakeModule(string id) : IPrefillModule
     public bool AutoComplete { get; init; }
     public PrefillResult AutoResult { get; init; } = PrefillResult.Empty;
 
+    /// <summary>What each dynamic rule resolves to.</summary>
+    public Dictionary<SelectionRule, IReadOnlyList<string>> RuleGames { get; } = [];
+
+    public Dictionary<SelectionRule, Exception> FailingRules { get; } = [];
+
+    public IReadOnlySet<SelectionRuleKind> SupportedRules => RuleGames.Keys.Concat(FailingRules.Keys).Select(r => r.Kind).ToHashSet();
+
+    public List<SelectionRule> ResolvedRules { get; } = [];
+
+    public Task<IReadOnlyList<string>> ResolveRuleAsync(SelectionRule rule, CancellationToken ct)
+    {
+        lock (ResolvedRules) { ResolvedRules.Add(rule); }
+        return FailingRules.TryGetValue(rule, out var ex) ? Task.FromException<IReadOnlyList<string>>(ex) : Task.FromResult(RuleGames[rule]);
+    }
+
     public IReadOnlyList<PendingRun> Runs { get { lock (_runs) { return [.. _runs]; } } }
 
     public Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct)

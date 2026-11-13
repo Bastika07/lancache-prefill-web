@@ -53,6 +53,22 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Selection_warnings_of_a_job_are_kept_across_a_restart()
+    {
+        var db = await _fixture.OpenAsync();
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.FailingRules[SelectionRule.TopPopular(5)] = new HttpRequestException("SteamCharts unreachable");
+        var queue = StartQueue(db, steam);
+
+        queue.Enqueue("steam", new PrefillRequest(["440"], Rules: [SelectionRule.TopPopular(5)]));
+        await EventuallyAsync(async () => (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 1);
+
+        var restarted = await _fixture.OpenAsync();
+        var warning = Assert.Single(Assert.Single(await restarted.JobHistory.GetRecentAsync(10, Ct)).Warnings);
+        Assert.Contains("SteamCharts unreachable", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Schedule_firings_including_skipped_modules_are_kept_across_a_restart()
     {
         var db = await _fixture.OpenAsync();
@@ -60,7 +76,7 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         var epic = new FakeModule("epic");
         var queue = StartQueue(db, steam, epic);
         var scheduler = new Scheduler(queue, [new Schedule("Nightly", "0 3 * * *", ["steam", "epic"])],
-            TimeZoneInfo.Utc, _fixture.Time, id => new PrefillRequest([id]), [db.JobHistory]);
+            TimeZoneInfo.Utc, _fixture.Time, new FakeSelectionStore(id => new Selection([id], [])), [db.JobHistory]);
         _loops.Add(scheduler.RunAsync(_stop.Token));
         queue.Enqueue("steam", new PrefillRequest(["440"]));
         await Eventually(() => steam.Runs.Count == 1);
@@ -88,7 +104,7 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         var queue = StartQueue(db, steam);
         // Fires only on Jan 7 and Feb 7, so moving the clock to day 91 adds nothing new.
         var scheduler = new Scheduler(queue, [new Schedule("Twice", "0 3 7 1,2 *", ["steam"])],
-            TimeZoneInfo.Utc, _fixture.Time, id => new PrefillRequest([id]), [db.JobHistory]);
+            TimeZoneInfo.Utc, _fixture.Time, new FakeSelectionStore(id => new Selection([id], [])), [db.JobHistory]);
         _loops.Add(scheduler.RunAsync(_stop.Token));
 
         _fixture.Time.Advance(TimeSpan.FromHours(3));                 // day 0: firing + Job

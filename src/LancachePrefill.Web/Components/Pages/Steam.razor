@@ -21,17 +21,37 @@
         <form @onsubmit="Enqueue">
             <label for="app-ids">Steam app ids (comma separated)</label>
             <input id="app-ids" @bind="_appIds" placeholder="e.g. 440, 570" />
+            <fieldset>
+                <legend>Dynamic rules</legend>
+                <label><input type="checkbox" @bind="_allOwned" /> All owned games</label>
+                <label><input type="checkbox" @bind="_recentlyPlayed" /> Recently played (2 weeks)</label>
+                <label><input type="checkbox" @bind="_recentlyPurchased" /> Recently purchased (30 days)</label>
+                <label><input type="checkbox" @bind="_topPopular" /> Top <input type="number" min="1" max="100" @bind="_topCount" style="width:4em" /> popular</label>
+            </fieldset>
             <label><input type="checkbox" @bind="_force" /> Force (download even if up to date)</label>
             <button type="submit">Prefill</button>
         </form>
         @if (LatestJob is { } job)
         {
             <dl data-testid="job-status">
-                <dt>State</dt><dd>@job.State</dd>
+                <dt>State</dt><dd>@job.State
+                    @if (job.State is JobState.Queued or JobState.Running)
+                    {
+                        <button type="button" @onclick="() => Queue.Cancel(job.Id)">Cancel</button>
+                    }
+                </dd>
                 @if (job.Progress is { } p)
                 {
                     <dt>Progress</dt>
                     <dd>@p.Phase @p.CurrentGameId @(p.BytesTotal > 0 ? $"{p.BytesDone / 1_048_576.0:F1} / {p.BytesTotal / 1_048_576.0:F1} MiB" : "")</dd>
+                }
+                @if (job.ResolvedGameIds is { } resolved)
+                {
+                    <dt>Games</dt><dd>@resolved.Count: @string.Join(", ", resolved.Take(20))@(resolved.Count > 20 ? ", …" : "")</dd>
+                }
+                @foreach (var warning in job.Warnings)
+                {
+                    <dt>Warning</dt><dd>@warning</dd>
                 }
                 @if (job.FailureReason is { } reason)
                 {
@@ -54,6 +74,8 @@
 @code {
     private string _appIds = "";
     private bool _force;
+    private bool _allOwned, _recentlyPlayed, _recentlyPurchased, _topPopular;
+    private int _topCount = 10;
 
     // The queue outlives the page, so a reload still shows the latest Steam Job.
     private Job? LatestJob => Queue.Jobs.LastOrDefault(j => j.ModuleId == SteamPrefillModule.ModuleId);
@@ -70,7 +92,12 @@
     private void Enqueue()
     {
         var ids = _appIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        Queue.Enqueue(SteamPrefillModule.ModuleId, new PrefillRequest(ids, _force));
+        var rules = new List<SelectionRule>();
+        if (_allOwned) rules.Add(SelectionRule.AllOwned);
+        if (_recentlyPlayed) rules.Add(SelectionRule.RecentlyPlayed);
+        if (_recentlyPurchased) rules.Add(SelectionRule.RecentlyPurchased);
+        if (_topPopular) rules.Add(SelectionRule.TopPopular(Math.Max(1, _topCount)));
+        Queue.Enqueue(SteamPrefillModule.ModuleId, new PrefillRequest(ids, _force, rules));
     }
 
     public void Dispose()
