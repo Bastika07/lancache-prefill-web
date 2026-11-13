@@ -85,6 +85,28 @@ section p + p, section p + form, section form + p, section p + button { margin-t
 .card-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
 .card-value { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
 .card-sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+.card-value.small { font-size: 1.2rem; }
+.card-value .badge { font-size: 0.9rem; vertical-align: middle; }
+
+/* Job log */
+.job-log {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    max-height: 480px;
+    overflow: auto;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.job-log .log-warning { color: var(--warn); }
+.job-log .log-error, .job-log .log-critical { color: var(--error); }
+.job-log .log-debug, .job-log .log-trace { color: var(--text-muted); }
+p.warning + p.warning, p.error + p.warning { margin-top: 8px; }
+section + p.warning, section + p.error, .cards + p.error, .cards + p.warning { margin-bottom: 24px; }
 
 /* Forms */
 form { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }

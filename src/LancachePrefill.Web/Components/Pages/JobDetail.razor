@@ -1,0 +1,161 @@
+@page "/jobs/{Id:guid}"
+@rendermode InteractiveServer
+@using LancachePrefill.Core
+@using LancachePrefill.Core.Persistence
+@using Microsoft.Extensions.Logging
+@implements IDisposable
+@inject JobQueue Queue
+@inject IJobHistoryStore History
+@inject TimeProvider Time
+
+<PageTitle>Job · Lancache Prefill</PageTitle>
+
+<p><a href="jobs">← Jobs</a></p>
+
+@if (_view is null)
+{
+    @if (_loaded)
+    {
+        <h1>Job not found</h1>
+        <p class="muted" data-testid="job-not-found">This Job is unknown or was removed from the history.</p>
+    }
+}
+else
+{
+    var v = _view;
+    <h1>@v.ModuleId Job</h1>
+
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">State</div>
+            <div class="card-value" data-testid="job-state"><span class="badge @Jobs.StateBadge(v.State)">@v.State</span></div>
+            @if (v.Live && v.State is JobState.Queued or JobState.Running)
+            {
+                <div class="card-sub"><button type="button" class="cancel" @onclick="() => Queue.Cancel(v.Id)">Cancel</button></div>
+            }
+        </div>
+        <div class="card">
+            <div class="card-label">Started</div>
+            <div class="card-value small">@(v.StartedAt is { } s ? JobFormat.Time(s) : "–")</div>
+            <div class="card-sub">Duration @JobFormat.Duration(v.Duration)</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Downloaded</div>
+            <div class="card-value small" data-testid="job-bytes">@JobFormat.Bytes(v.BytesDownloaded)</div>
+            <div class="card-sub">@JobFormat.Speed(v.AverageBytesPerSecond)</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Games</div>
+            <div class="card-value small">@v.Games.Count@(v.ResolvedGameCount is { } n ? $" / {n}" : "")</div>
+            <div class="card-sub">@v.Games.Count(g => g.Status == GameOutcomeStatus.Failed) failed</div>
+        </div>
+    </div>
+
+    @if (v.Progress is { } p && v.State == JobState.Running)
+    {
+        <section data-testid="job-progress">
+            <h2>Progress</h2>
+            <p>@p.Phase @p.CurrentGameId</p>
+            @if (p.BytesTotal > 0)
+            {
+                <progress max="100" value="@JobFormat.Percent(p.BytesDone, p.BytesTotal)"></progress>
+                <span class="muted">@JobFormat.Bytes(p.BytesDone) / @JobFormat.Bytes(p.BytesTotal)</span>
+            }
+        </section>
+    }
+
+    @if (v.FailureReason is { } reason)
+    {
+        <p class="error" role="alert" data-testid="job-failure">@reason</p>
+    }
+    @foreach (var warning in v.Warnings)
+    {
+        <p class="warning" data-testid="job-warning">@warning</p>
+    }
+
+    <section aria-labelledby="games-heading">
+        <h2 id="games-heading">Games</h2>
+        @if (v.Games.Count == 0)
+        {
+            <p class="muted">No Game finished yet.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Game</th><th>Outcome</th><th>Downloaded</th><th>Reason</th></tr></thead>
+                <tbody>
+                    @foreach (var game in v.Games)
+                    {
+                        <tr data-testid="game">
+                            <td>@game.GameId</td>
+                            <td><span class="badge @OutcomeBadge(game.Status)">@game.Status</span></td>
+                            <td>@(game.BytesDownloaded > 0 ? JobFormat.Bytes(game.BytesDownloaded) : "")</td>
+                            <td class="muted">@game.FailureReason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+
+    <section aria-labelledby="log-heading">
+        <h2 id="log-heading">Log</h2>
+        @if (v.Log.Count == 0)
+        {
+            <p class="muted">Nothing logged.</p>
+        }
+        else
+        {
+            <pre class="job-log">@foreach (var line in v.Log)
+            {<span data-testid="log-line" class="log-@line.Level.ToString().ToLowerInvariant()">@line.At.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) @Level(line.Level) @line.Message
+</span>}</pre>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private JobDetailView? _view;
+    private bool _loaded;
+    private Timer? _refresh;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+        _refresh ??= new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private async Task LoadAsync()
+    {
+        if (Queue.Jobs.FirstOrDefault(j => j.Id == Id) is { } job)
+        {
+            _view = JobDetailView.From(job, Time.GetUtcNow());
+        }
+        else if (_view is null || _view.Live)
+        {
+            // Finished before this app start: only the history knows it. A history entry never changes.
+            var record = await History.GetAsync(Id, CancellationToken.None);
+            _view = record is null ? null : JobDetailView.From(record);
+        }
+        _loaded = true;
+    }
+
+    private static string OutcomeBadge(GameOutcomeStatus status) => status switch
+    {
+        GameOutcomeStatus.Downloaded => "badge-ok",
+        GameOutcomeStatus.UpToDate => "badge-info",
+        GameOutcomeStatus.Failed => "badge-err",
+        _ => "",
+    };
+
+    private static string Level(LogLevel level) => level switch
+    {
+        LogLevel.Warning => "WARN",
+        LogLevel.Error or LogLevel.Critical => "FAIL",
+        LogLevel.Debug or LogLevel.Trace => "DBUG",
+        _ => "INFO",
+    };
+
+    public void Dispose() => _refresh?.Dispose();
+}

@@ -66,6 +66,12 @@ public sealed class Job
 
     private readonly List<GameOutcome> _finishedGames = [];
 
+    /// <summary>Games the Module reported as finished so far, in order.</summary>
+    public IReadOnlyList<GameOutcome> FinishedGames
+    {
+        get { lock (_lock) { return [.. _finishedGames]; } }
+    }
+
     internal void ReportProgress(PrefillProgress progress)
     {
         if (progress.FinishedGame is { } outcome)
