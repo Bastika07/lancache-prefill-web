@@ -42,7 +42,20 @@ public sealed class Job
     public PrefillProgress? Progress => Volatile.Read(ref _progress);
     private PrefillProgress? _progress;
 
-    internal void ReportProgress(PrefillProgress progress) => Volatile.Write(ref _progress, progress);
+    private readonly List<GameOutcome> _finishedGames = [];
+
+    internal void ReportProgress(PrefillProgress progress)
+    {
+        if (progress.FinishedGame is { } outcome)
+        {
+            lock (_lock)
+            {
+                _finishedGames.Add(outcome);
+            }
+            return;
+        }
+        Volatile.Write(ref _progress, progress);
+    }
 
     /// <summary>Completes when the Job reaches a final state; never faults.</summary>
     public Task Completion => _completion.Task;
@@ -80,6 +93,7 @@ public sealed class Job
     {
         lock (_lock)
         {
+            Result = new PrefillResult([.. _finishedGames]);
             Finish(JobState.Cancelled, now);
         }
     }
@@ -89,6 +103,7 @@ public sealed class Job
         lock (_lock)
         {
             FailureReason = reason;
+            Result = new PrefillResult([.. _finishedGames]);
             Finish(JobState.Failed, now);
         }
     }

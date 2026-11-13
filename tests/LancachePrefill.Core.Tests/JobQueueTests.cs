@@ -234,6 +234,53 @@ public sealed class JobQueueTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_cancelled_job_keeps_the_outcomes_of_the_games_finished_before_the_cancel()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1_000)));
+        queue.Cancel(job.Id);
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Cancelled, job.State);
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1_000)], job.Result?.Games);
+    }
+
+    [Fact]
+    public async Task A_failed_job_keeps_the_outcomes_of_the_games_finished_before_the_failure()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.UpToDate)));
+        steam.Runs[0].Fail(new InvalidOperationException("No Lancache found"));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Failed, job.State);
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.UpToDate)], job.Result?.Games);
+    }
+
+    [Fact]
+    public async Task A_succeeded_job_takes_the_outcomes_the_module_returns()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)));
+        steam.Runs[0].Complete(new PrefillResult([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)], job.Result?.Games);
+    }
+
+    [Fact]
     public void Enqueueing_for_an_unknown_module_is_rejected()
     {
         var queue = CreateQueue(new FakeModule("steam"));
