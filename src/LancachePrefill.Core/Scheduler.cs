@@ -88,7 +88,18 @@ public sealed partial class Scheduler
         {
             // Update-only: never Force. Rules are resolved by the Job queue when the Job starts.
             var request = (await _selections.GetAsync(moduleId, ct)).ToRequest(force: false);
-            modules.Add(new ModuleFiring(moduleId, _queue.TryEnqueue(moduleId, request, out var job) ? job : null));
+            Job? job;
+            try
+            {
+                _queue.TryEnqueue(moduleId, request, out job);
+            }
+            catch (ArgumentException ex)
+            {
+                // E.g. a saved rule the Module no longer supports: skip this Module, keep the others and the loop.
+                LogEnqueueRejected(_logger, ex, schedule.Name, moduleId);
+                job = null;
+            }
+            modules.Add(new ModuleFiring(moduleId, job));
         }
         var firing = new ScheduleFiring(schedule.Name, at, modules);
         lock (_firingsLock)
@@ -116,6 +127,9 @@ public sealed partial class Scheduler
             .Min();
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Schedule {Schedule} skipped Module {ModuleId}: its Selection was rejected")]
+    private static partial void LogEnqueueRejected(ILogger logger, Exception exception, string schedule, string moduleId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Schedule-fired listener {Listener} failed for Schedule {ScheduleName}")]
     private static partial void LogListenerFailed(ILogger logger, Exception exception, string listener, string scheduleName);

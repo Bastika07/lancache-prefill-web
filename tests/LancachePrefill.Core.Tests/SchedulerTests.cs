@@ -13,11 +13,12 @@ public sealed class SchedulerTests : IAsyncDisposable
     private readonly List<Task> _loops = [];
 
     private (JobQueue Queue, Scheduler Scheduler) Start(
-        IPrefillModule[] modules, Schedule[] schedules, TimeZoneInfo? timeZone = null, IScheduleFiredListener[]? listeners = null)
+        IPrefillModule[] modules, Schedule[] schedules, TimeZoneInfo? timeZone = null, IScheduleFiredListener[]? listeners = null,
+        Func<string, Selection>? selectionFor = null)
     {
         var queue = new JobQueue(modules);
         var scheduler = new Scheduler(queue, schedules, timeZone ?? TimeZoneInfo.Utc, _time,
-            new FakeSelectionStore(moduleId => new Selection([$"{moduleId}-selection"], [])), listeners);
+            new FakeSelectionStore(selectionFor ?? (moduleId => new Selection([$"{moduleId}-selection"], []))), listeners);
         _loops.Add(queue.RunAsync(_stop.Token));
         _loops.Add(scheduler.RunAsync(_stop.Token));
         return (queue, scheduler);
@@ -145,6 +146,26 @@ public sealed class SchedulerTests : IAsyncDisposable
 
         _time.Advance(TimeSpan.FromHours(3));
         await Eventually(() => steam.Runs.Count == 1);
+        _time.Advance(TimeSpan.FromDays(1));
+        await Eventually(() => steam.Runs.Count == 2);
+    }
+
+    [Fact]
+    public async Task A_saved_selection_the_module_rejects_skips_only_that_module_and_later_firings_still_happen()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var battlenet = new FakeModule("battlenet") { AutoComplete = true };
+        var (_, scheduler) = Start([battlenet, steam], [new Schedule("Nightly", "0 3 * * *", ["battlenet", "steam"])],
+            selectionFor: id => id == "battlenet"
+                ? new Selection([], [SelectionRule.RecentlyPlayed])
+                : new Selection(["440"], []));
+
+        _time.Advance(TimeSpan.FromHours(3));
+        await Eventually(() => steam.Runs.Count == 1);
+        var firing = Assert.Single(scheduler.Firings);
+        Assert.Null(Assert.Single(firing.Modules, m => m.ModuleId == "battlenet").Job);
+        Assert.Empty(battlenet.Runs);
+
         _time.Advance(TimeSpan.FromDays(1));
         await Eventually(() => steam.Runs.Count == 2);
     }
