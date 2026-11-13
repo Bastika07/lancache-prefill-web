@@ -1,8 +1,10 @@
 @page "/jobs"
 @rendermode InteractiveServer
 @using LancachePrefill.Core
+@using LancachePrefill.Core.Persistence
 @implements IDisposable
 @inject JobQueue Queue
+@inject IJobHistoryStore History
 
 <PageTitle>Jobs · Lancache Prefill</PageTitle>
 
@@ -24,7 +26,7 @@
                 {
                     <tr data-testid="active-job">
                         <td><a href="@($"jobs/{job.Id}")">@job.ModuleId</a></td>
-                        <td><span class="badge @(job.State == JobState.Running ? "badge-info" : "")">@job.State</span></td>
+                        <td><span class="badge @StateBadge(job.State)">@job.State</span></td>
                         <td>
                             @if (job.Progress is { } p)
                             {
@@ -44,11 +46,60 @@
     }
 </section>
 
-@code {
-    private Timer? _refresh;
+<section aria-labelledby="history-heading">
+    <h2 id="history-heading">History</h2>
+    @if (_history.Count == 0)
+    {
+        <p class="muted">No finished Jobs yet.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Module</th><th>State</th><th>Started</th><th>Duration</th><th>Downloaded</th><th>Speed</th><th>Games</th></tr></thead>
+            <tbody>
+                @foreach (var record in _history)
+                {
+                    var failed = record.Games.Count(g => g.Status == GameOutcomeStatus.Failed);
+                    <tr data-testid="history-job">
+                        <td><a href="@($"jobs/{record.JobId}")">@record.ModuleId</a></td>
+                        <td><span class="badge @StateBadge(record.State)">@record.State</span></td>
+                        <td>@(record.StartedAt is { } started ? JobFormat.Time(started) : "–")</td>
+                        <td>@JobFormat.Duration(record.Duration)</td>
+                        <td>@JobFormat.Bytes(record.BytesDownloaded)</td>
+                        <td>@JobFormat.Speed(record.AverageBytesPerSecond)</td>
+                        <td>@record.Games.Count Games@(failed > 0 ? $", {failed} failed" : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
 
-    protected override void OnInitialized() =>
-        _refresh = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+@code {
+    private const int HistoryRows = 50;
+    private Timer? _refresh;
+    private IReadOnlyList<JobRecord> _history = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _history = await History.GetRecentAsync(HistoryRows, CancellationToken.None);
+        _refresh = new Timer(_ => InvokeAsync(RefreshAsync), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private async Task RefreshAsync()
+    {
+        _history = await History.GetRecentAsync(HistoryRows, CancellationToken.None);
+        StateHasChanged();
+    }
+
+    internal static string StateBadge(JobState state) => state switch
+    {
+        JobState.Running => "badge-info",
+        JobState.Failed => "badge-err",
+        JobState.Cancelled => "badge-warn",
+        JobState.Succeeded => "badge-ok",
+        _ => "",
+    };
 
     public void Dispose() => _refresh?.Dispose();
 }
