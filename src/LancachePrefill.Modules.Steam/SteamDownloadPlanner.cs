@@ -157,7 +157,8 @@ public sealed class SteamDownloadPlanner(ISteamSession steam, IDownloadedDepotSt
                 var server = (await GetCdnServersAsync(ct))[0];
                 return await steam.DownloadManifestAsync(depot.DepotId, depot.ManifestId.Value, code, server, ct);
             }
-            catch (Exception ex) when (attempt < ManifestAttempts && ex is not OperationCanceledException)
+            // SteamKit reports its own job timeouts as TaskCanceledException; only our token means "stop".
+            catch (Exception) when (attempt < ManifestAttempts && !ct.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), ct);
             }

@@ -63,13 +63,33 @@ internal sealed class FakeSteamSession : ISteamSession
     public bool OwnsApp(uint appId) => OwnedApps.Contains(appId);
     public bool OwnsDepot(uint depotId) => !UnownedDepots.Contains(depotId);
 
-    public Task<ulong> GetManifestRequestCodeAsync(uint depotId, uint appId, ulong manifestId, CancellationToken ct) =>
-        Task.FromResult(manifestId * 7);
+    /// <summary>How many manifest request code calls fail like a SteamKit job timeout before succeeding.</summary>
+    public int RequestCodeTimeouts { get; set; }
+
+    /// <summary>Depots whose manifest request code always times out.</summary>
+    public HashSet<uint> TimingOutDepots { get; } = [];
+
+    public Task<ulong> GetManifestRequestCodeAsync(uint depotId, uint appId, ulong manifestId, CancellationToken ct)
+    {
+        if (TimingOutDepots.Contains(depotId))
+        {
+            return Task.FromException<ulong>(new TaskCanceledException("SteamKit job timed out"));
+        }
+        if (RequestCodeTimeouts > 0)
+        {
+            RequestCodeTimeouts--;
+            return Task.FromException<ulong>(new TaskCanceledException("SteamKit job timed out"));
+        }
+        return Task.FromResult(manifestId * 7);
+    }
 
     public Task<SteamManifest> DownloadManifestAsync(uint depotId, ulong manifestId, ulong requestCode, CdnServer server, CancellationToken ct)
     {
         Assert.Equal(manifestId * 7, requestCode);
-        ManifestDownloads.Add((depotId, manifestId));
+        lock (ManifestDownloads)
+        {
+            ManifestDownloads.Add((depotId, manifestId));
+        }
         return Task.FromResult(_manifests.TryGetValue((depotId, manifestId), out var manifest)
             ? manifest
             : new SteamManifest(depotId, manifestId, [new SteamFile([new SteamChunk($"{depotId:x}aa", 1_048_576)])]));
@@ -84,11 +104,20 @@ internal sealed class InMemoryDownloadedDepots : IDownloadedDepotStore
 {
     private readonly HashSet<(uint, ulong)> _done = [];
 
-    public Task<bool> IsDownloadedAsync(uint depotId, ulong manifestId, CancellationToken ct) => Task.FromResult(_done.Contains((depotId, manifestId)));
+    public Task<bool> IsDownloadedAsync(uint depotId, ulong manifestId, CancellationToken ct)
+    {
+        lock (_done)
+        {
+            return Task.FromResult(_done.Contains((depotId, manifestId)));
+        }
+    }
 
     public Task MarkDownloadedAsync(IEnumerable<(uint DepotId, ulong ManifestId)> depots, CancellationToken ct)
     {
-        _done.UnionWith(depots);
+        lock (_done)
+        {
+            _done.UnionWith(depots);
+        }
         return Task.CompletedTask;
     }
 }

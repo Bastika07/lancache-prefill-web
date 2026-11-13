@@ -85,6 +85,6 @@ No live tests against Steam, Battle.net or Epic in CI; a manual smoke test cover
 ## Delivery order
 
 1. Core + Web skeleton + Steam, porting the current Steam flow 1:1 (Games sequential, chunks parallel).
-2. Steam pipeline: prefetch metadata/manifests of upcoming Games while one shared chunk downloader runs across Game boundaries. Benchmarked before/after on a real library.
+2. Steam pipeline: prefetch metadata/manifests of upcoming Games while one shared chunk downloader runs across Game boundaries. Benchmarked before/after on a real library. Done in #12: up to 8 Games in flight (4 planned in parallel), outcomes still reported in Game order; 30 small Games (2.4 GB, warm Lancache) went from 127 s to 98 s on average.
 3. Battle.net module.
 4. Epic module.
