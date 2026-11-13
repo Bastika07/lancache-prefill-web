@@ -48,6 +48,22 @@ public sealed class JobsPageTests : IAsyncDisposable
         }, Wait);
     }
 
+    [Fact]
+    public void Cancel_stops_a_running_job_and_removes_a_waiting_one_from_the_queue()
+    {
+        var running = _queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var waiting = _queue.Enqueue("steam", new PrefillRequest(["570"]));
+        var page = _ctx.Render<Jobs>();
+        page.WaitForAssertion(() => Assert.Single(_steam.Runs), Wait);
+
+        page.WaitForElements("[data-testid=active-job]", 2, Wait)[1].QuerySelector("button.cancel")!.Click();
+        page.WaitForAssertion(() => Assert.Equal(JobState.Cancelled, waiting.State), Wait);
+        page.Find("[data-testid=active-job] button.cancel").Click();
+
+        page.WaitForAssertion(() => Assert.Equal(JobState.Cancelled, running.State), Wait);
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll("[data-testid=active-job]")), Wait);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
