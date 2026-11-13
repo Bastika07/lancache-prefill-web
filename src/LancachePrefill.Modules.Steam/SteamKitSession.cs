@@ -200,6 +200,10 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
         {
             try
             {
+                if (await _tokens.GetAsync(SteamPrefillModule.ModuleId, CancellationToken.None) is null)
+                {
+                    return; // never signed in: nothing to resume
+                }
                 await EnsureSignedInAsync(CancellationToken.None);
             }
             catch (Exception ex)
@@ -402,7 +406,7 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
     [LoggerMessage(Level = LogLevel.Warning, Message = "Steam login failed")]
     private static partial void LogLoginFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Could not resume the stored Steam login")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not resume the stored Steam login")]
     private static partial void LogResumeFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Disconnected from Steam ({Account}); will reconnect on next use")]
