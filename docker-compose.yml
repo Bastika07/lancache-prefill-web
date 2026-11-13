@@ -1,0 +1,21 @@
+# Sample deployment. Put ADMIN_PASSWORD (and optionally LANCACHE_IP) into a .env file next to it.
+services:
+  lancache-prefill-web:
+    image: ghcr.io/bastika07/lancache-prefill-web:latest
+    container_name: lancache-prefill-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      # Leave empty to find the Lancache via the LAN DNS (lancache.steamcontent.com).
+      LANCACHE_IP: ${LANCACHE_IP:-}
+      # Time zone the Schedules' cron times are read in.
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      # Database, Data Protection keys and Steam login. A named volume is writable by the
+      # container's non-root user; for a host directory run `chown 1654:1654` on it first.
+      - prefill-data:/data
+
+volumes:
+  prefill-data:
