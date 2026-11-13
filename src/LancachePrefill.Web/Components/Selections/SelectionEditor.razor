@@ -1,7 +1,34 @@
 @using LancachePrefill.Core
+@using LancachePrefill.Core.Persistence
+@inject ISelectionStore Selections
 
 <section aria-labelledby="@($"{Module.Id}-selection-heading")" class="selection-editor">
     <h2 id="@($"{Module.Id}-selection-heading")">Selection</h2>
+
+    @if (Module.SupportedRules.Count > 0)
+    {
+        <fieldset class="selection-rules">
+            <legend>Dynamic rules</legend>
+            @foreach (var kind in Enum.GetValues<SelectionRuleKind>().Where(Module.SupportedRules.Contains))
+            {
+                <label>
+                    <input type="checkbox" id="@($"rule-{kind}")" checked="@_rules.Contains(kind)"
+                           @onchange="e => ToggleRule(kind, e.Value is true)" />
+                    @if (kind == SelectionRuleKind.TopPopular)
+                    {
+                        <span>Top</span>
+                        <input type="number" id="rule-TopPopular-count" min="1" max="100" class="rule-count"
+                               value="@_topCount" @onchange="e => SetTopCount(e.Value)" />
+                        <span>popular games</span>
+                    }
+                    else
+                    {
+                        @RuleLabel(kind)
+                    }
+                </label>
+            }
+        </fieldset>
+    }
 
     <div class="selection-games">
         <input id="game-search" type="search" placeholder="Search by name or id" autocomplete="off"
@@ -17,12 +44,19 @@
                 @foreach (var game in Visible())
                 {
                     <li data-testid="game-row">
-                        <span class="game-name">@game.Name</span>
-                        <span class="muted">@game.Id</span>
+                        <label>
+                            <input type="checkbox" checked="@_selected.Contains(game.Id)" @onchange="e => ToggleGame(game.Id, e.Value is true)" />
+                            <span class="game-name">@game.Name</span>
+                            <span class="muted">@game.Id</span>
+                        </label>
                     </li>
                 }
             </ul>
         }
+    </div>
+
+    <div class="selection-actions">
+        <button type="button" class="save-selection" @onclick="SaveAsync">Save selection</button>
     </div>
 </section>
 
@@ -31,9 +65,22 @@
 
     private IReadOnlyList<GameInfo>? _games;
     private string _search = string.Empty;
+    private readonly List<string> _selected = [];
+    private readonly HashSet<SelectionRuleKind> _rules = [];
+    private int _topCount = 10;
 
     protected override async Task OnInitializedAsync()
     {
+        var saved = await Selections.GetAsync(Module.Id, CancellationToken.None);
+        _selected.AddRange(saved.GameIds);
+        foreach (var rule in saved.Rules)
+        {
+            _rules.Add(rule.Kind);
+            if (rule.Kind == SelectionRuleKind.TopPopular)
+            {
+                _topCount = rule.Count;
+            }
+        }
         var games = await Module.ListGamesAsync(CancellationToken.None);
         _games = [.. games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)];
     }
@@ -45,4 +92,41 @@
             || g.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
             || g.Id.Contains(search, StringComparison.OrdinalIgnoreCase));
     }
+
+    private void ToggleGame(string id, bool selected)
+    {
+        _selected.Remove(id);
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+    }
+
+    private void ToggleRule(SelectionRuleKind kind, bool enabled)
+    {
+        if (enabled) { _rules.Add(kind); } else { _rules.Remove(kind); }
+    }
+
+    private void SetTopCount(object? value)
+    {
+        if (int.TryParse(value?.ToString(), out var count))
+        {
+            _topCount = Math.Clamp(count, 1, 100);
+        }
+    }
+
+    private Selection Draft() => new(
+        [.. _selected],
+        [.. Enum.GetValues<SelectionRuleKind>().Where(_rules.Contains)
+            .Select(k => k == SelectionRuleKind.TopPopular ? SelectionRule.TopPopular(_topCount) : new SelectionRule(k))]);
+
+    private Task SaveAsync() => Selections.SaveAsync(Module.Id, Draft(), CancellationToken.None);
+
+    private static string RuleLabel(SelectionRuleKind kind) => kind switch
+    {
+        SelectionRuleKind.AllOwned => "All owned games",
+        SelectionRuleKind.RecentlyPlayed => "Recently played (2 weeks)",
+        SelectionRuleKind.RecentlyPurchased => "Recently purchased (30 days)",
+        _ => kind.ToString(),
+    };
 }

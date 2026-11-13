@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using Bunit;
 using LancachePrefill.Core;
 using LancachePrefill.Core.Persistence;
@@ -43,6 +44,42 @@ public sealed class SelectionEditorTests : IAsyncDisposable
 
         editor.Find("#game-search").Input("57");
         Assert.Equal(["Dota 2"], GameNames(editor));
+    }
+
+    private static IElement Row(IRenderedComponent<SelectionEditor> editor, string name) =>
+        editor.FindAll("[data-testid=game-row]").Single(r => r.QuerySelector(".game-name")!.TextContent.Trim() == name);
+
+    [Fact]
+    public void The_saved_selection_is_preselected_and_picked_games_and_rules_are_saved()
+    {
+        _store.Saved["steam"] = new Selection(["570"], [SelectionRule.TopPopular(5)]);
+        var editor = Render();
+        editor.WaitForAssertion(() => Assert.True(Row(editor, "Dota 2").QuerySelector("input[type=checkbox]")!.IsChecked()), Wait);
+        Assert.True(editor.Find("#rule-TopPopular").IsChecked());
+        Assert.Equal("5", editor.Find("#rule-TopPopular-count").GetAttribute("value"));
+        Assert.False(editor.Find("#rule-AllOwned").IsChecked());
+
+        Row(editor, "Counter-Strike 2").QuerySelector("input[type=checkbox]")!.Change(true);
+        Row(editor, "Dota 2").QuerySelector("input[type=checkbox]")!.Change(false);
+        editor.Find("#rule-AllOwned").Change(true);
+        editor.Find("#rule-TopPopular-count").Change("20");
+        editor.Find("button.save-selection").Click();
+
+        editor.WaitForAssertion(() =>
+        {
+            var saved = _store.Saved["steam"];
+            Assert.Equal(["730"], saved.GameIds);
+            Assert.Equal([SelectionRule.AllOwned, SelectionRule.TopPopular(20)], saved.Rules);
+        }, Wait);
+    }
+
+    [Fact]
+    public void Only_the_rules_the_module_supports_are_offered()
+    {
+        var editor = Render();
+
+        editor.WaitForAssertion(() => Assert.Equal(["rule-AllOwned", "rule-TopPopular"],
+            editor.FindAll("input[type=checkbox][id^=rule-]").Select(c => c.Id!)), Wait);
     }
 
     public async ValueTask DisposeAsync() => await _ctx.DisposeAsync();
