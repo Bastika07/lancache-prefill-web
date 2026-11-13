@@ -170,6 +170,26 @@ public sealed class SchedulerTests : IAsyncDisposable
         await Eventually(() => steam.Runs.Count == 2);
     }
 
+    [Fact]
+    public async Task Replaced_schedules_take_effect_at_once_even_when_the_new_time_is_sooner_than_the_old()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        var (_, scheduler) = Start([steam], [new Schedule("Nightly", "0 3 * * *", ["steam"])]);
+        _time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+
+        scheduler.ReplaceSchedules([new Schedule("Early", "0 2 * * *", ["steam"])]);
+        Assert.Equal(["Early"], scheduler.Schedules.Select(s => s.Name));
+
+        _time.Advance(TimeSpan.FromHours(1));
+        await Eventually(() => steam.Runs.Count == 1);
+        Assert.Equal("Early", Assert.Single(scheduler.Firings).ScheduleName);
+
+        _time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Single(steam.Runs);
+    }
+
     private sealed class ThrowingListener : IScheduleFiredListener
     {
         public Task OnScheduleFiredAsync(ScheduleFiring firing, CancellationToken ct) =>

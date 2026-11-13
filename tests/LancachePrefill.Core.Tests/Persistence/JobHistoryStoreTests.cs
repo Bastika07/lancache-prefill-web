@@ -133,9 +133,11 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         _loops.Add(scheduler.RunAsync(_stop.Token));
 
         _fixture.Time.Advance(TimeSpan.FromHours(3));                 // day 0: firing + Job
-        await EventuallyAsync(async () => (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 1);
+        await EventuallyAsync(async () =>
+            (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 1 && (await db.JobHistory.GetRecentFiringsAsync(10, Ct)).Count == 1);
         _fixture.Time.Advance(TimeSpan.FromDays(31));                 // day 31: firing + Job
-        await EventuallyAsync(async () => (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 2);
+        await EventuallyAsync(async () =>
+            (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 2 && (await db.JobHistory.GetRecentFiringsAsync(10, Ct)).Count == 2);
         _fixture.Time.Advance(TimeSpan.FromDays(60));                 // day 91
 
         await db.JobHistory.PruneAsync(TimeSpan.FromDays(90), Ct);
