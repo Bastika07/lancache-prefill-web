@@ -53,8 +53,17 @@ public sealed record SelectionRule(SelectionRuleKind Kind, int Count = 0)
     public override string ToString() => Kind == SelectionRuleKind.TopPopular ? $"TopPopular({Count})" : Kind.ToString();
 }
 
-/// <summary>Module-neutral progress report.</summary>
-public sealed record PrefillProgress(string Phase, string? CurrentGameId = null, long BytesDone = 0, long BytesTotal = 0);
+/// <summary>
+/// Module-neutral progress report. A Module reports each finished Game with <see cref="GameFinished"/>,
+/// so a cancelled or failed Job still knows which Games were done.
+/// </summary>
+public sealed record PrefillProgress(string Phase, string? CurrentGameId = null, long BytesDone = 0, long BytesTotal = 0)
+{
+    public GameOutcome? FinishedGame { get; init; }
+
+    public static PrefillProgress GameFinished(GameOutcome outcome) =>
+        new("Finished", outcome.GameId) { FinishedGame = outcome };
+}
 
 /// <summary>Per-Game outcome of a prefill. See GLOSSARY.md → Job result.</summary>
 public sealed record PrefillResult(IReadOnlyList<GameOutcome> Games)

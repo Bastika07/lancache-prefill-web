@@ -34,39 +34,21 @@
         @if (LatestJob is { } job)
         {
             <dl data-testid="job-status">
-                <dt>State</dt><dd>@job.State
-                    @if (job.State is JobState.Queued or JobState.Running)
-                    {
-                        <button type="button" @onclick="() => Queue.Cancel(job.Id)">Cancel</button>
-                    }
+                <dt>Latest Job</dt>
+                <dd>
+                    <span class="badge @Jobs.StateBadge(job.State)">@job.State</span>
+                    <a href="@($"jobs/{job.Id}")">Details and log →</a>
                 </dd>
-                @if (job.Progress is { } p)
+                @if (job.Progress is { } p && job.State == JobState.Running)
                 {
                     <dt>Progress</dt>
-                    <dd>@p.Phase @p.CurrentGameId @(p.BytesTotal > 0 ? $"{p.BytesDone / 1_048_576.0:F1} / {p.BytesTotal / 1_048_576.0:F1} MiB" : "")</dd>
+                    <dd>@p.Phase @p.CurrentGameId @(p.BytesTotal > 0 ? $"{JobFormat.Bytes(p.BytesDone)} / {JobFormat.Bytes(p.BytesTotal)}" : "")</dd>
                 }
                 @if (job.ResolvedGameIds is { } resolved)
                 {
                     <dt>Games</dt><dd>@resolved.Count: @string.Join(", ", resolved.Take(20))@(resolved.Count > 20 ? ", …" : "")</dd>
                 }
-                @foreach (var warning in job.Warnings)
-                {
-                    <dt>Warning</dt><dd>@warning</dd>
-                }
-                @if (job.FailureReason is { } reason)
-                {
-                    <dt>Error</dt><dd>@reason</dd>
-                }
             </dl>
-            @if (job.Result is { } result)
-            {
-                <ul>
-                    @foreach (var game in result.Games)
-                    {
-                        <li>@game.GameId: @game.Status @(game.BytesDownloaded > 0 ? $"({game.BytesDownloaded / 1_048_576.0:F1} MiB)" : "") @game.FailureReason</li>
-                    }
-                </ul>
-            }
         }
     </section>
 }

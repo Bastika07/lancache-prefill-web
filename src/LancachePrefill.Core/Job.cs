@@ -32,6 +32,28 @@ public sealed class Job
     public PrefillResult? Result { get; private set; }
     public string? FailureReason { get; private set; }
 
+    /// <summary>The Job log keeps this many newest lines.</summary>
+    public const int MaxLogLines = 1000;
+
+    /// <summary>The newest <see cref="MaxLogLines"/> lines logged while the Job ran.</summary>
+    public IReadOnlyList<JobLogLine> Log
+    {
+        get { lock (_lock) { return [.. _log]; } }
+    }
+    private readonly Queue<JobLogLine> _log = new();
+
+    internal void AppendLog(JobLogLine line)
+    {
+        lock (_lock)
+        {
+            _log.Enqueue(line);
+            if (_log.Count > MaxLogLines)
+            {
+                _log.Dequeue();
+            }
+        }
+    }
+
     /// <summary>The Games the Module was asked for after resolving the Selection rules; null until the Job starts.</summary>
     public IReadOnlyList<string>? ResolvedGameIds { get; internal set; }
 
@@ -42,7 +64,26 @@ public sealed class Job
     public PrefillProgress? Progress => Volatile.Read(ref _progress);
     private PrefillProgress? _progress;
 
-    internal void ReportProgress(PrefillProgress progress) => Volatile.Write(ref _progress, progress);
+    private readonly List<GameOutcome> _finishedGames = [];
+
+    /// <summary>Games the Module reported as finished so far, in order.</summary>
+    public IReadOnlyList<GameOutcome> FinishedGames
+    {
+        get { lock (_lock) { return [.. _finishedGames]; } }
+    }
+
+    internal void ReportProgress(PrefillProgress progress)
+    {
+        if (progress.FinishedGame is { } outcome)
+        {
+            lock (_lock)
+            {
+                _finishedGames.Add(outcome);
+            }
+            return;
+        }
+        Volatile.Write(ref _progress, progress);
+    }
 
     /// <summary>Completes when the Job reaches a final state; never faults.</summary>
     public Task Completion => _completion.Task;
@@ -80,6 +121,7 @@ public sealed class Job
     {
         lock (_lock)
         {
+            Result = new PrefillResult([.. _finishedGames]);
             Finish(JobState.Cancelled, now);
         }
     }
@@ -89,6 +131,7 @@ public sealed class Job
         lock (_lock)
         {
             FailureReason = reason;
+            Result = new PrefillResult([.. _finishedGames]);
             Finish(JobState.Failed, now);
         }
     }

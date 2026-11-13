@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using LancachePrefill.Core;
 
 namespace LancachePrefill.Core.Tests;
@@ -8,9 +9,11 @@ public sealed class JobQueueTests : IAsyncLifetime
     private readonly CancellationTokenSource _stop = new();
     private Task _runLoop = Task.CompletedTask;
 
+    private readonly JobLogProvider _jobLogs = new();
+
     private JobQueue CreateQueue(params IPrefillModule[] modules)
     {
-        var queue = new JobQueue(modules);
+        var queue = new JobQueue(modules, logger: new ProviderLogger<JobQueue>(_jobLogs));
         _runLoop = queue.RunAsync(_stop.Token);
         return queue;
     }
@@ -231,6 +234,99 @@ public sealed class JobQueueTests : IAsyncLifetime
 
         Assert.Contains("RecentlyPlayed", ex.Message, StringComparison.Ordinal);
         Assert.Empty(queue.Jobs);
+    }
+
+    [Fact]
+    public async Task A_cancelled_job_keeps_the_outcomes_of_the_games_finished_before_the_cancel()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1_000)));
+        queue.Cancel(job.Id);
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Cancelled, job.State);
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 1_000)], job.Result?.Games);
+    }
+
+    [Fact]
+    public async Task A_failed_job_keeps_the_outcomes_of_the_games_finished_before_the_failure()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.UpToDate)));
+        steam.Runs[0].Fail(new InvalidOperationException("No Lancache found"));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(JobState.Failed, job.State);
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.UpToDate)], job.Result?.Games);
+    }
+
+    [Fact]
+    public async Task A_succeeded_job_takes_the_outcomes_the_module_returns()
+    {
+        var steam = new FakeModule("steam");
+        var queue = CreateQueue(steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)));
+        steam.Runs[0].Complete(new PrefillResult([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 5)], job.Result?.Games);
+    }
+
+    [Fact]
+    public async Task What_a_module_logs_while_its_job_runs_goes_into_that_jobs_log_only()
+    {
+        var steam = new FakeModule("steam") { Logger = _jobLogs.CreateLogger("Steam"), LogOnRun = "Planning 440" };
+        var queue = CreateQueue(steam);
+        var running = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        var waiting = queue.Enqueue("steam", new PrefillRequest(["570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+
+        Assert.Contains(running.Log, l => l.Message == "Planning 440" && l.Level == LogLevel.Information);
+        Assert.Empty(waiting.Log);
+    }
+
+    [Fact]
+    public async Task The_job_log_tells_when_the_job_started_what_it_resolved_its_warnings_and_how_it_ended()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true };
+        steam.RuleGames[SelectionRule.AllOwned] = ["570"];
+        steam.FailingRules[SelectionRule.RecentlyPlayed] = new HttpRequestException("Steam Web API down");
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"], Rules: [SelectionRule.AllOwned, SelectionRule.RecentlyPlayed]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        var messages = job.Log.Select(l => l.Message).ToList();
+        Assert.Contains(messages, m => m.Contains("started", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(messages, m => m.Contains("2 Games", StringComparison.Ordinal));
+        Assert.Contains(job.Log, l => l.Level == LogLevel.Warning && l.Message.Contains("Steam Web API down", StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.Contains("Succeeded", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_job_log_keeps_only_the_newest_lines()
+    {
+        var steam = new FakeModule("steam") { AutoComplete = true, Logger = _jobLogs.CreateLogger("Steam"),
+            LogOnRun = string.Join("\n", Enumerable.Range(1, Job.MaxLogLines + 50).Select(i => $"line {i}")) };
+        var queue = CreateQueue(steam);
+
+        var job = queue.Enqueue("steam", new PrefillRequest(["440"]));
+        await job.Completion.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(Job.MaxLogLines, job.Log.Count);
+        Assert.DoesNotContain(job.Log, l => l.Message == "line 1");
+        Assert.Contains(job.Log, l => l.Message == $"line {Job.MaxLogLines + 50}");
     }
 
     [Fact]

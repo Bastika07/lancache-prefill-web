@@ -74,6 +74,10 @@ namespace LancachePrefill.Core.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LogJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ModuleId")
                         .IsRequired()
                         .HasColumnType("TEXT");

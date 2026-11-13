@@ -10,9 +10,11 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly List<Task> _loops = [];
 
+    private readonly JobLogProvider _jobLogs = new();
+
     private JobQueue StartQueue(PrefillDatabase db, params IPrefillModule[] modules)
     {
-        var queue = new JobQueue(modules, _fixture.Time, [db.JobHistory]);
+        var queue = new JobQueue(modules, _fixture.Time, [db.JobHistory], new ProviderLogger<JobQueue>(_jobLogs));
         _loops.Add(queue.RunAsync(_stop.Token));
         return queue;
     }
@@ -66,6 +68,29 @@ public sealed class JobHistoryStoreTests : IAsyncDisposable
         var restarted = await _fixture.OpenAsync();
         var warning = Assert.Single(Assert.Single(await restarted.JobHistory.GetRecentAsync(10, Ct)).Warnings);
         Assert.Contains("SteamCharts unreachable", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_cancelled_job_is_kept_with_its_finished_games_and_its_log_and_can_be_looked_up_by_id()
+    {
+        var db = await _fixture.OpenAsync();
+        var steam = new FakeModule("steam") { Logger = _jobLogs.CreateLogger("Steam"), LogOnRun = "Downloading 440" };
+        var queue = StartQueue(db, steam);
+        var job = queue.Enqueue("steam", new PrefillRequest(["440", "570"]));
+        await Eventually(() => steam.Runs.Count == 1);
+        steam.Runs[0].Progress.Report(PrefillProgress.GameFinished(new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 7)));
+        queue.Cancel(job.Id);
+        await EventuallyAsync(async () => (await db.JobHistory.GetRecentAsync(10, Ct)).Count == 1);
+
+        var restarted = await _fixture.OpenAsync();
+        var record = await restarted.JobHistory.GetAsync(job.Id, Ct);
+
+        Assert.NotNull(record);
+        Assert.Equal(JobState.Cancelled, record.State);
+        Assert.Equal([new GameOutcome("440", GameOutcomeStatus.Downloaded, BytesDownloaded: 7)], record.Games);
+        Assert.Equal(job.Log, record.Log);
+        Assert.Contains(record.Log, l => l.Message == "Downloading 440" && l.Category == "Steam");
+        Assert.Null(await restarted.JobHistory.GetAsync(Guid.NewGuid(), Ct));
     }
 
     [Fact]

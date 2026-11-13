@@ -1,4 +1,5 @@
 using LancachePrefill.Core;
+using Microsoft.Extensions.Logging;
 
 namespace LancachePrefill.Core.Tests;
 
@@ -14,6 +15,10 @@ internal sealed class FakeModule(string id) : IPrefillModule
     public string DisplayName => $"Fake {Id}";
 
     public bool AutoComplete { get; init; }
+
+    /// <summary>Logged line by line (split on \n) when a run starts, from inside the Job.</summary>
+    public string? LogOnRun { get; init; }
+    public ILogger? Logger { get; init; }
     public PrefillResult AutoResult { get; init; } = PrefillResult.Empty;
 
     /// <summary>What each dynamic rule resolves to.</summary>
@@ -35,6 +40,15 @@ internal sealed class FakeModule(string id) : IPrefillModule
 
     public Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct)
     {
+        if (LogOnRun is not null && Logger is not null)
+        {
+            foreach (var line in LogOnRun.Split('\n'))
+            {
+#pragma warning disable CA1848, CA1873 // test double: plain logging is fine
+                Logger.LogInformation("{Line}", line);
+#pragma warning restore CA1848, CA1873
+            }
+        }
         var run = new PendingRun(request, progress, ct);
         lock (_runs) { _runs.Add(run); }
         if (AutoComplete)
