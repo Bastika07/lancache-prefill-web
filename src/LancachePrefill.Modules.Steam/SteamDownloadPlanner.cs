@@ -154,10 +154,14 @@ public sealed class SteamDownloadPlanner(ISteamSession steam, IDownloadedDepotSt
                 {
                     throw new InvalidOperationException($"No manifest request code for depot {depot}, manifest {depot.ManifestId}.");
                 }
-                var server = (await GetCdnServersAsync(ct))[0];
+                // Each attempt asks the next CDN server (by load): one overloaded server answering 503
+                // shouldn't fail the Game.
+                var servers = await GetCdnServersAsync(ct);
+                var server = servers[(attempt - 1) % servers.Count];
                 return await steam.DownloadManifestAsync(depot.DepotId, depot.ManifestId.Value, code, server, ct);
             }
-            catch (Exception ex) when (attempt < ManifestAttempts && ex is not OperationCanceledException)
+            // SteamKit reports its own job timeouts as TaskCanceledException; only our token means "stop".
+            catch (Exception) when (attempt < ManifestAttempts && !ct.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), ct);
             }

@@ -63,20 +63,49 @@ internal sealed class FakeSteamSession : ISteamSession
     public bool OwnsApp(uint appId) => OwnedApps.Contains(appId);
     public bool OwnsDepot(uint depotId) => !UnownedDepots.Contains(depotId);
 
-    public Task<ulong> GetManifestRequestCodeAsync(uint depotId, uint appId, ulong manifestId, CancellationToken ct) =>
-        Task.FromResult(manifestId * 7);
+    /// <summary>How many manifest request code calls fail like a SteamKit job timeout before succeeding.</summary>
+    public int RequestCodeTimeouts { get; set; }
+
+    /// <summary>Depots whose manifest request code always times out.</summary>
+    public HashSet<uint> TimingOutDepots { get; } = [];
+
+    public Task<ulong> GetManifestRequestCodeAsync(uint depotId, uint appId, ulong manifestId, CancellationToken ct)
+    {
+        if (TimingOutDepots.Contains(depotId))
+        {
+            return Task.FromException<ulong>(new TaskCanceledException("SteamKit job timed out"));
+        }
+        if (RequestCodeTimeouts > 0)
+        {
+            RequestCodeTimeouts--;
+            return Task.FromException<ulong>(new TaskCanceledException("SteamKit job timed out"));
+        }
+        return Task.FromResult(manifestId * 7);
+    }
 
     public Task<SteamManifest> DownloadManifestAsync(uint depotId, ulong manifestId, ulong requestCode, CdnServer server, CancellationToken ct)
     {
         Assert.Equal(manifestId * 7, requestCode);
-        ManifestDownloads.Add((depotId, manifestId));
+        if (UnavailableManifestServers.Contains(server.Host))
+        {
+            return Task.FromException<SteamManifest>(new HttpRequestException("503 (Service Unavailable)", null, System.Net.HttpStatusCode.ServiceUnavailable));
+        }
+        lock (ManifestDownloads)
+        {
+            ManifestDownloads.Add((depotId, manifestId));
+        }
         return Task.FromResult(_manifests.TryGetValue((depotId, manifestId), out var manifest)
             ? manifest
             : new SteamManifest(depotId, manifestId, [new SteamFile([new SteamChunk($"{depotId:x}aa", 1_048_576)])]));
     }
 
+    public List<CdnServer> CdnServers { get; } = [new CdnServer("cache1-fra1.steamcontent.com", Load: 10)];
+
+    /// <summary>CDN hosts that answer every manifest download with 503, like an overloaded CDN.</summary>
+    public HashSet<string> UnavailableManifestServers { get; } = [];
+
     public Task<IReadOnlyList<CdnServer>> GetCdnServersAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<CdnServer>>([new CdnServer("cache1-fra1.steamcontent.com", Load: 10)]);
+        Task.FromResult<IReadOnlyList<CdnServer>>([.. CdnServers]);
 }
 
 /// <summary>Remembers downloaded depot manifests in memory, standing in for the settings-backed store.</summary>
@@ -84,11 +113,20 @@ internal sealed class InMemoryDownloadedDepots : IDownloadedDepotStore
 {
     private readonly HashSet<(uint, ulong)> _done = [];
 
-    public Task<bool> IsDownloadedAsync(uint depotId, ulong manifestId, CancellationToken ct) => Task.FromResult(_done.Contains((depotId, manifestId)));
+    public Task<bool> IsDownloadedAsync(uint depotId, ulong manifestId, CancellationToken ct)
+    {
+        lock (_done)
+        {
+            return Task.FromResult(_done.Contains((depotId, manifestId)));
+        }
+    }
 
     public Task MarkDownloadedAsync(IEnumerable<(uint DepotId, ulong ManifestId)> depots, CancellationToken ct)
     {
-        _done.UnionWith(depots);
+        lock (_done)
+        {
+            _done.UnionWith(depots);
+        }
         return Task.CompletedTask;
     }
 }
