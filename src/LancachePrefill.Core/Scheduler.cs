@@ -13,7 +13,10 @@ namespace LancachePrefill.Core;
 public sealed partial class Scheduler
 {
     private readonly JobQueue _queue;
-    private readonly IReadOnlyList<(Schedule Schedule, CronExpression Cron)> _schedules;
+    // Replaced as a whole by ReplaceSchedules; the loop reads it under the lock.
+    private readonly Lock _schedulesLock = new();
+    private IReadOnlyList<(Schedule Schedule, CronExpression Cron)> _schedules;
+    private TaskCompletionSource _wake = NewWake();
     private readonly TimeZoneInfo _timeZone;
     private readonly TimeProvider _time;
     private readonly ISelectionStore _selections;
@@ -21,7 +24,7 @@ public sealed partial class Scheduler
     private readonly ILogger _logger;
 
     // Occurrences in (_checkedUpTo, now] are due. Starts at construction so nothing is missed
-    // between creating the Scheduler and its loop starting.
+    // between creating the Scheduler and its loop starting. Guarded by _schedulesLock.
     private DateTimeOffset _checkedUpTo;
 
     private readonly Lock _firingsLock = new();
@@ -37,7 +40,7 @@ public sealed partial class Scheduler
         ILogger<Scheduler>? logger = null)
     {
         _queue = queue;
-        _schedules = [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
+        _schedules = Parse(schedules);
         _timeZone = timeZone;
         _time = time;
         _selections = selections;
@@ -52,16 +55,69 @@ public sealed partial class Scheduler
         get { lock (_firingsLock) { return [.. _firings]; } }
     }
 
+    /// <summary>The time zone cron expressions are read in.</summary>
+    public TimeZoneInfo TimeZone => _timeZone;
+
+    /// <summary>The Schedules currently in effect.</summary>
+    public IReadOnlyList<Schedule> Schedules
+    {
+        get { lock (_schedulesLock) { return [.. _schedules.Select(s => s.Schedule)]; } }
+    }
+
+    /// <summary>
+    /// Puts <paramref name="schedules"/> in effect at once, e.g. after they were edited in the UI.
+    /// A running loop wakes up and waits for the new next occurrence.
+    /// </summary>
+    /// <exception cref="CronFormatException">A cron expression is invalid; nothing is replaced.</exception>
+    public void ReplaceSchedules(IEnumerable<Schedule> schedules)
+    {
+        var parsed = Parse(schedules);
+        TaskCompletionSource wake;
+        lock (_schedulesLock)
+        {
+            _schedules = parsed;
+            // Only occurrences after now count for the new Schedules: an edit at 02:30 to "02:00"
+            // waits for tomorrow instead of firing at once.
+            _checkedUpTo = _time.GetUtcNow();
+            wake = _wake;
+            _wake = NewWake();
+        }
+        wake.TrySetResult();
+    }
+
     public async Task RunAsync(CancellationToken stoppingToken)
     {
         while (true)
         {
+            Task wake;
+            lock (_schedulesLock)
+            {
+                wake = _wake.Task;
+            }
             var now = _time.GetUtcNow();
             await FireDueAsync(now, stoppingToken);
 
             var next = NextOccurrenceAfter(now);
             var delay = next is null ? MaxWait : Min(next.Value - now, MaxWait);
-            await Task.Delay(delay, _time, stoppingToken);
+            using var delayStop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            // ForceYielding: never continue inline on the thread that completed the timer (e.g. inside
+            // FakeTimeProvider.Advance), so the loop observes the clock only after it settled.
+            await Task.WhenAny(Task.Delay(delay, _time, delayStop.Token), wake).ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+            await delayStop.CancelAsync();
+            stoppingToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    private static List<(Schedule, CronExpression)> Parse(IEnumerable<Schedule> schedules) =>
+        [.. schedules.Select(s => (s, CronExpression.Parse(s.Cron)))];
+
+    private static TaskCompletionSource NewWake() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private IReadOnlyList<(Schedule Schedule, CronExpression Cron)> CurrentSchedules()
+    {
+        lock (_schedulesLock)
+        {
+            return _schedules;
         }
     }
 
@@ -70,18 +126,32 @@ public sealed partial class Scheduler
 
     private async Task FireDueAsync(DateTimeOffset now, CancellationToken ct)
     {
-        foreach (var (schedule, cron) in _schedules)
+        List<Schedule> due;
+        lock (_schedulesLock)
         {
-            var occurrence = cron.GetNextOccurrence(_checkedUpTo, _timeZone);
-            if (occurrence is not null && occurrence <= now)
+            var from = _checkedUpTo;
+            due = [.. _schedules
+                .Where(s => s.Cron.GetNextOccurrence(from, _timeZone) is { } occurrence && occurrence <= now)
+                .Select(s => s.Schedule)];
+            if (now > _checkedUpTo)
             {
-                await FireAsync(schedule, now, ct);
+                _checkedUpTo = now;
             }
         }
-        _checkedUpTo = now;
+        foreach (var schedule in due)
+        {
+            await FireAsync(schedule, now, ct);
+        }
     }
 
-    private async Task FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
+    /// <summary>
+    /// Fires <paramref name="schedule"/> now, exactly as its cron time would: one update-only Job per
+    /// Module from its saved Selection, skipping Modules with a queued or running Job. The firing is recorded.
+    /// </summary>
+    public Task<ScheduleFiring> RunNowAsync(Schedule schedule, CancellationToken ct) =>
+        FireAsync(schedule, _time.GetUtcNow(), ct);
+
+    private async Task<ScheduleFiring> FireAsync(Schedule schedule, DateTimeOffset at, CancellationToken ct)
     {
         var modules = new List<ModuleFiring>();
         foreach (var moduleId in schedule.ModuleIds)
@@ -118,10 +188,11 @@ public sealed partial class Scheduler
                 LogListenerFailed(_logger, ex, listener.GetType().Name, schedule.Name);
             }
         }
+        return firing;
     }
 
     private DateTimeOffset? NextOccurrenceAfter(DateTimeOffset now) =>
-        _schedules
+        CurrentSchedules()
             .Select(s => s.Cron.GetNextOccurrence(now, _timeZone))
             .Where(o => o is not null)
             .Min();
