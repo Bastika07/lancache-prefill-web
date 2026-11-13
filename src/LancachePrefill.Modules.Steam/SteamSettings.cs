@@ -12,4 +12,18 @@ public sealed record SteamSettings(
 {
     /// <summary>Upstream defaults: Windows, 64-bit, English, 30 concurrent requests.</summary>
     public static SteamSettings Default { get; } = new(["windows"], 30);
+
+    public static IReadOnlyList<string> KnownOperatingSystems { get; } = ["windows", "macos", "linux"];
+
+    /// <summary>Steam's language names (from upstream's Language enum).</summary>
+    public static IReadOnlyList<string> KnownLanguages { get; } =
+    [
+        "english", "arabic", "brazilian", "bulgarian", "chinese", "schinese", "tchinese", "czech", "danish", "dutch",
+        "finnish", "french", "german", "greek", "hungarian", "italian", "indonesian", "japanese", "koreana", "latam",
+        "norwegian", "polish", "portuguese", "spanish", "romanian", "russian", "thai", "turkish", "swedish", "ukrainian",
+        "vietnamese",
+    ];
+
+    public const int MinConcurrentRequests = 1;
+    public const int MaxConcurrentRequestsLimit = 100;
 }
