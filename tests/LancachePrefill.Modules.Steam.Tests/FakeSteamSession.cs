@@ -17,6 +17,28 @@ internal sealed class FakeSteamSession : ISteamSession
     public HashSet<uint> UnownedDepots { get; } = [1009, 1201];
     public List<(uint Depot, ulong Manifest)> ManifestDownloads { get; } = [];
 
+    private readonly Dictionary<uint, string> _generatedApps = [];
+
+    /// <summary>
+    /// Adds an owned game with one depot (id <c>appId + 1</c>, manifest <c>appId + 9000</c>) whose
+    /// manifest has the default single chunk, for tests that need many simple Games.
+    /// </summary>
+    public void AddSimpleGame(uint appId, string name)
+    {
+        var depotId = appId + 1;
+        _generatedApps[appId] = $$"""
+            "{{appId}}"
+            {
+                "common" { "name" "{{name}}" "type" "Game" "releasestate" "released" }
+                "depots" { "{{depotId}}" { "name" "{{name}} Content" "manifests" { "public" { "gid" "{{appId + 9000}}" } } } }
+            }
+            """;
+        OwnedApps.Add(appId);
+    }
+
+    /// <summary>The single chunk id of a game added with <see cref="AddSimpleGame"/>.</summary>
+    public static string SimpleGameChunk(uint appId) => $"{appId + 1:x}aa";
+
     public void SetManifest(uint depotId, ulong manifestId, params SteamFile[] files) =>
         _manifests[(depotId, manifestId)] = new SteamManifest(depotId, manifestId, files);
 
@@ -26,7 +48,11 @@ internal sealed class FakeSteamSession : ISteamSession
         foreach (var appId in appIds)
         {
             var file = Path.Combine(FixtureDir, $"app_{appId}.vdf");
-            if (File.Exists(file))
+            if (_generatedApps.TryGetValue(appId, out var generated))
+            {
+                result[appId] = KeyValue.LoadFromString(generated)!;
+            }
+            else if (File.Exists(file))
             {
                 result[appId] = KeyValue.LoadFromString(File.ReadAllText(file))!;
             }

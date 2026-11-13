@@ -55,7 +55,7 @@ else
     {
         <section data-testid="job-progress">
             <h2>Progress</h2>
-            <p>@p.Phase @p.CurrentGameId</p>
+            <p>@p.Phase @JobFormat.Game(p.CurrentGameId, p.CurrentGameName)</p>
             @if (p.BytesTotal > 0)
             {
                 <progress max="100" value="@JobFormat.Percent(p.BytesDone, p.BytesTotal)"></progress>
@@ -87,7 +87,10 @@ else
                     @foreach (var game in v.Games)
                     {
                         <tr data-testid="game">
-                            <td>@game.GameId</td>
+                            <td>@JobFormat.Game(game.GameId, game.GameName)@if (!string.IsNullOrWhiteSpace(game.GameName))
+                                {
+                                    <span class="muted game-id"> @game.GameId</span>
+                                }</td>
                             <td><span class="badge @OutcomeBadge(game.Status)">@game.Status</span></td>
                             <td>@(game.BytesDownloaded > 0 ? JobFormat.Bytes(game.BytesDownloaded) : "")</td>
                             <td class="muted">@game.FailureReason</td>
