@@ -15,7 +15,7 @@ namespace LancachePrefill.Modules.Steam;
 /// account licenses, and the PICS / manifest / CDN calls behind <see cref="ISteamSession"/>.
 /// Runs SteamKit2's callback pump on a background thread while the app runs.
 /// </summary>
-public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHostedService, IDisposable
+public sealed partial class SteamKitSession : ISteamSession, ISteamLibrary, ISteamLogin, IHostedService, IDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
 
@@ -295,7 +295,7 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
 
         var licenses = await _licenses.Task.WaitAsync(ConnectTimeout, ct);
         _owned = await LoadLicensesAsync(licenses, ct);
-        LogSignedIn(_logger, token.AccountName, _owned.AppIds.Count, _owned.DepotIds.Count);
+        LogSignedIn(_logger, token.AccountName, _owned.Apps.Count, _owned.DepotIds.Count);
         State = new SteamLoginState.SignedIn(token.AccountName);
     }
 
@@ -317,12 +317,12 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
         {
             throw new InvalidOperationException($"Could not load Steam licenses: {list.Result}");
         }
-        var requests = list.LicenseList
-            .Where(l => !l.LicenseFlags.HasFlag(ELicenseFlags.Expired))
-            .Select(l => new SteamApps.PICSRequest(l.PackageID, l.AccessToken))
-            .ToList();
+        var active = list.LicenseList.Where(l => !l.LicenseFlags.HasFlag(ELicenseFlags.Expired)).ToList();
+        var requests = active.Select(l => new SteamApps.PICSRequest(l.PackageID, l.AccessToken)).ToList();
+        var licensedAt = active.GroupBy(l => l.PackageID)
+            .ToDictionary(g => g.Key, g => new DateTimeOffset(DateTime.SpecifyKind(g.Min(l => l.TimeCreated), DateTimeKind.Utc)));
         var result = await _apps.PICSGetProductInfo([], requests).ToTask().WaitAsync(TimeSpan.FromMinutes(2), ct);
-        var apps = new HashSet<uint>();
+        var apps = new Dictionary<uint, DateTimeOffset>();
         var depots = new HashSet<uint>();
         var now = DateTimeOffset.UtcNow;
         foreach (var package in result.Results!.SelectMany(r => r.Packages.Values))
@@ -333,10 +333,43 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
             {
                 continue; // expired free weekend
             }
-            apps.UnionWith(kv["appids"].Children.Select(c => uint.Parse(c.Value!, System.Globalization.CultureInfo.InvariantCulture)));
+            var packageTime = licensedAt.GetValueOrDefault(package.ID, DateTimeOffset.UnixEpoch);
+            foreach (var appId in kv["appids"].Children.Select(c => uint.Parse(c.Value!, System.Globalization.CultureInfo.InvariantCulture)))
+            {
+                // Earliest license wins: an old game re-granted by a new bundle is not "recently purchased".
+                apps[appId] = apps.TryGetValue(appId, out var known) && known < packageTime ? known : packageTime;
+            }
             depots.UnionWith(kv["depotids"].Children.Select(c => uint.Parse(c.Value!, System.Globalization.CultureInfo.InvariantCulture)));
         }
         return new Licenses(apps, depots);
+    }
+
+    // ───────────── ISteamLibrary ─────────────
+
+    public async Task<IReadOnlyDictionary<uint, DateTimeOffset>> GetOwnedAppsAsync(CancellationToken ct)
+    {
+        await EnsureSignedInAsync(ct);
+        return _owned.Apps;
+    }
+
+    /// <summary>Port of AppInfoHandler.GetRecentlyPlayedGamesAsync: owned games with playtime in the last two weeks.</summary>
+    public async Task<IReadOnlyList<uint>> GetRecentlyPlayedAppIdsAsync(CancellationToken ct)
+    {
+        await EnsureSignedInAsync(ct);
+        var player = _client.GetHandler<SteamUnifiedMessages>()!.CreateService<SteamKit2.Internal.Player>();
+        var response = await player.GetOwnedGames(new SteamKit2.Internal.CPlayer_GetOwnedGames_Request
+        {
+            steamid = _client.SteamID!.ConvertToUInt64(),
+            include_appinfo = false,
+            include_free_sub = true,
+            include_played_free_games = true,
+            skip_unvetted_apps = false,
+        }).ToTask().WaitAsync(TimeSpan.FromMinutes(1), ct);
+        if (response.Result != EResult.OK)
+        {
+            throw new InvalidOperationException($"Steam did not return the played games: {response.Result}");
+        }
+        return [.. response.Body.games.Where(g => g.playtime_2weeks > 0).Select(g => (uint)g.appid)];
     }
 
     // ───────────── ISteamSession ─────────────
@@ -354,9 +387,9 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
             .ToDictionary(app => app.ID, app => app.KeyValues);
     }
 
-    public bool OwnsApp(uint appId) => _owned.AppIds.Contains(appId);
+    public bool OwnsApp(uint appId) => _owned.Apps.ContainsKey(appId);
 
-    public bool OwnsDepot(uint depotId) => _owned.DepotIds.Contains(depotId) || _owned.AppIds.Contains(depotId);
+    public bool OwnsDepot(uint depotId) => _owned.DepotIds.Contains(depotId) || _owned.Apps.ContainsKey(depotId);
 
     public async Task<ulong> GetManifestRequestCodeAsync(uint depotId, uint appId, ulong manifestId, CancellationToken ct)
     {
@@ -395,9 +428,9 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLogin, IHoste
 
     private sealed record StoredToken(string AccountName, string RefreshToken);
 
-    private sealed record Licenses(IReadOnlySet<uint> AppIds, IReadOnlySet<uint> DepotIds)
+    private sealed record Licenses(IReadOnlyDictionary<uint, DateTimeOffset> Apps, IReadOnlySet<uint> DepotIds)
     {
-        public static Licenses None { get; } = new(new HashSet<uint>(), new HashSet<uint>());
+        public static Licenses None { get; } = new(new Dictionary<uint, DateTimeOffset>(), new HashSet<uint>());
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Signed in to Steam as {Account}: {Apps} owned apps, {Depots} depots")]

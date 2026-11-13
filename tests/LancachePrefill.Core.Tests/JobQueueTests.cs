@@ -230,6 +230,7 @@ public sealed class JobQueueTests : IAsyncLifetime
             queue.Enqueue("battlenet", new PrefillRequest([], Rules: [SelectionRule.AllOwned, SelectionRule.RecentlyPlayed])));
 
         Assert.Contains("RecentlyPlayed", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(queue.Jobs);
     }
 
     [Fact]

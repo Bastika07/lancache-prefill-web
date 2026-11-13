@@ -36,6 +36,10 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().Acc
 builder.Services.AddSingleton<SteamKitSession>();
 builder.Services.AddSingleton<ISteamSession>(sp => sp.GetRequiredService<SteamKitSession>());
 builder.Services.AddSingleton<ISteamLogin>(sp => sp.GetRequiredService<SteamKitSession>());
+builder.Services.AddSingleton<ISteamLibrary>(sp => sp.GetRequiredService<SteamKitSession>());
+builder.Services.AddHttpClient(SteamChartsClient.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton(sp => new SteamChartsClient(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(SteamChartsClient.HttpClientName)));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SteamKitSession>());
 builder.Services.AddSingleton<IDownloadedDepotStore, SettingsDownloadedDepotStore>();
 builder.Services.AddHttpClient(SteamChunkDownloader.HttpClientName, c => c.Timeout = TimeSpan.FromMinutes(2));

@@ -16,12 +16,43 @@ public sealed class SteamPrefillModule(
     ISettingsStore settings,
     IDownloadedDepotStore downloaded,
     LancacheDetector lancache,
-    SteamChunkDownloader downloader) : IPrefillModule
+    SteamChunkDownloader downloader,
+    ISteamLibrary library,
+    SteamChartsClient charts,
+    TimeProvider time) : IPrefillModule
 {
     public const string ModuleId = "steam";
+    private static readonly TimeSpan RecentPurchaseWindow = TimeSpan.FromDays(30);
 
     public string Id => ModuleId;
     public string DisplayName => "Steam";
+
+    public IReadOnlySet<SelectionRuleKind> SupportedRules { get; } = new HashSet<SelectionRuleKind>
+    {
+        SelectionRuleKind.AllOwned,
+        SelectionRuleKind.RecentlyPlayed,
+        SelectionRuleKind.RecentlyPurchased,
+        SelectionRuleKind.TopPopular,
+    };
+
+    /// <summary>
+    /// Port of SteamManager.BuildAppIdDownloadListAsync. Results are narrowed to owned, prefillable
+    /// games, so e.g. "all owned" doesn't list every DLC and tool as a skipped Game.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ResolveRuleAsync(SelectionRule rule, CancellationToken ct)
+    {
+        IReadOnlyList<uint> candidates = rule.Kind switch
+        {
+            SelectionRuleKind.AllOwned => [.. (await library.GetOwnedAppsAsync(ct)).Keys],
+            SelectionRuleKind.RecentlyPlayed => await library.GetRecentlyPlayedAppIdsAsync(ct),
+            SelectionRuleKind.RecentlyPurchased => [.. (await library.GetOwnedAppsAsync(ct))
+                .Where(a => a.Value >= time.GetUtcNow() - RecentPurchaseWindow).Select(a => a.Key)],
+            SelectionRuleKind.TopPopular => [.. (await charts.GetMostPlayedAppIdsAsync(ct)).Take(rule.Count)],
+            _ => throw new NotSupportedException($"Steam does not support the rule {rule}."),
+        };
+        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(candidates, ct);
+        return [.. games.Select(g => g.AppId.ToString(CultureInfo.InvariantCulture))];
+    }
 
     public async Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct)
     {
