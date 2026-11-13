@@ -1,0 +1,48 @@
+@using LancachePrefill.Core
+
+<section aria-labelledby="@($"{Module.Id}-selection-heading")" class="selection-editor">
+    <h2 id="@($"{Module.Id}-selection-heading")">Selection</h2>
+
+    <div class="selection-games">
+        <input id="game-search" type="search" placeholder="Search by name or id" autocomplete="off"
+               value="@_search" @oninput="e => _search = e.Value?.ToString() ?? string.Empty" />
+
+        @if (_games is null)
+        {
+            <p role="status">Loading games…</p>
+        }
+        else
+        {
+            <ul class="game-list">
+                @foreach (var game in Visible())
+                {
+                    <li data-testid="game-row">
+                        <span class="game-name">@game.Name</span>
+                        <span class="muted">@game.Id</span>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IPrefillModule Module { get; set; } = default!;
+
+    private IReadOnlyList<GameInfo>? _games;
+    private string _search = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var games = await Module.ListGamesAsync(CancellationToken.None);
+        _games = [.. games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private IEnumerable<GameInfo> Visible()
+    {
+        var search = _search.Trim();
+        return _games!.Where(g => search.Length == 0
+            || g.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || g.Id.Contains(search, StringComparison.OrdinalIgnoreCase));
+    }
+}

@@ -6,6 +6,9 @@ public interface IPrefillModule
     string Id { get; }
     string DisplayName { get; }
 
+    /// <summary>The Games a Selection can pick from, e.g. the Account's prefillable Games. None by default.</summary>
+    Task<IReadOnlyList<GameInfo>> ListGamesAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<GameInfo>>([]);
+
     /// <summary>The dynamic Selection rules this Module can resolve. None by default.</summary>
     IReadOnlySet<SelectionRuleKind> SupportedRules => new HashSet<SelectionRuleKind>();
 
@@ -16,6 +19,9 @@ public interface IPrefillModule
     /// <summary>Prefills the requested Games through the Lancache and reports the per-Game outcome.</summary>
     Task<PrefillResult> PrefillAsync(PrefillRequest request, IProgress<PrefillProgress> progress, CancellationToken ct);
 }
+
+/// <summary>A Game as a Selection lists it.</summary>
+public sealed record GameInfo(string Id, string Name);
 
 /// <summary>
 /// What one Job asks a Module to prefill: explicit Games plus dynamic rules (a Selection).
