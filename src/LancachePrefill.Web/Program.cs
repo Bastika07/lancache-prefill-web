@@ -35,6 +35,7 @@ builder.Services.AddSingleton(sp => PrefillDatabase.OpenAsync(
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().Settings);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().AccountTokens);
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().JobHistory);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<PrefillDatabase>().Selections);
 
 // Steam Module.
 builder.Services.AddSingleton<SteamKitSession>();

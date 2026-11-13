@@ -45,7 +45,7 @@ interface IPrefillModule
 - `PrefillProgress`: module-neutral — phase, current Game, bytes done/total.
 - `PrefillResult`: per-Game status (up to date / downloaded / failed + reason), bytes, duration.
 - Each Module exposes its own settings page:
-  - Steam: operating systems (multi-select, union of Depots), max concurrent requests.
+  - Steam: operating systems (multi-select, union of Depots; also decides which Games are prefillable), max concurrent requests, language.
   - Battle.net: product list only.
   - Epic: max concurrent requests.
 - Global settings: Lancache IP override, time zone, history retention.
@@ -77,7 +77,7 @@ Test-first, only at these seams:
 1. **Job queue** (Core) with a fake `IPrefillModule`: ordering, one-at-a-time, cancellation, skip rules, Job results. No network.
 2. **Scheduler** with `FakeTimeProvider`: cron firing, skip-on-overlap. No real waiting.
 3. **Module parsers/planners** with recorded fixtures (Steam manifests, TACT indexes, Epic API responses): "what needs downloading". Not the login.
-4. **UI** with bUnit: login dialogs and the Job view only.
+4. **UI** with bUnit: login dialogs, the Job view, the Selection editor and Module settings forms. Pages that only compose these are not tested.
 
 No live tests against Steam, Battle.net or Epic in CI; a manual smoke test covers that.
 

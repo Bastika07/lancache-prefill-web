@@ -49,6 +49,9 @@
 </section>
 
 @code {
+    /// <summary>Raised after the settings were saved.</summary>
+    [Parameter] public EventCallback OnSaved { get; set; }
+
     private SteamSettings? _settings;
     private readonly List<string> _operatingSystems = [];
     private string _maxConcurrent = "";
@@ -97,6 +100,7 @@
         };
         await Settings.SaveModuleAsync(SteamPrefillModule.ModuleId, _settings, CancellationToken.None);
         _savedMessage = true;
+        await OnSaved.InvokeAsync();
     }
 
     private static string OsLabel(string os) => os switch

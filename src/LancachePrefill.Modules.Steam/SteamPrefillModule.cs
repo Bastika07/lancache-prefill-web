@@ -37,6 +37,15 @@ public sealed partial class SteamPrefillModule(
         SelectionRuleKind.TopPopular,
     };
 
+    /// <summary>The Account's owned, prefillable Games for the chosen operating systems, by name.</summary>
+    public async Task<IReadOnlyList<GameInfo>> ListGamesAsync(CancellationToken ct)
+    {
+        var owned = await library.GetOwnedAppsAsync(ct);
+        var steamSettings = await settings.GetModuleAsync(ModuleId, SteamSettings.Default, ct);
+        var games = await new SteamDownloadPlanner(steam, downloaded).GetAvailableGamesAsync(owned.Keys, steamSettings, ct);
+        return [.. games.Select(g => new GameInfo(g.AppId.ToString(CultureInfo.InvariantCulture), g.Name))];
+    }
+
     /// <summary>
     /// Port of SteamManager.BuildAppIdDownloadListAsync. Results are narrowed to owned, prefillable
     /// games, so e.g. "all owned" doesn't list every DLC and tool as a skipped Game.
