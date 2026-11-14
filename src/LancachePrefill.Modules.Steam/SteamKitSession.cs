@@ -18,6 +18,8 @@ namespace LancachePrefill.Modules.Steam;
 public sealed partial class SteamKitSession : ISteamSession, ISteamLibrary, ISteamLogin, IHostedService, IDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(10);
 
     private readonly IAccountTokenStore _tokens;
     private readonly ILogger<SteamKitSession> _logger;
@@ -31,6 +33,8 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLibrary, ISte
     private readonly Lock _stateLock = new();
 
     private CancellationTokenSource? _pump;
+    private Task? _retryLoop;
+    private TaskCompletionSource _retryNow = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _loginCancellation;
     private TaskCompletionSource? _connected;
     private TaskCompletionSource<SteamUser.LoggedOnCallback>? _loggedOn;
@@ -196,22 +200,73 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLibrary, ISte
         }, pump, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         // Sign back in with the stored token in the background; don't hold up app start.
-        _ = Task.Run(async () =>
+        StartRetryLoop();
+        return Task.CompletedTask;
+    }
+
+    public Task ReconnectAsync()
+    {
+        _retryNow.TrySetResult();
+        StartRetryLoop();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Signs in with the stored token, retrying with growing delays while Steam can't be reached
+    /// (state <see cref="SteamLoginState.Unavailable"/>). Ends when signed in, when there is no stored
+    /// login, or when Steam rejects the login (state SignedOut). At most one loop runs.
+    /// </summary>
+    private void StartRetryLoop()
+    {
+        var pump = _pump?.Token ?? CancellationToken.None;
+        lock (_stateLock)
+        {
+            if (_retryLoop is { IsCompleted: false })
+            {
+                return;
+            }
+            _retryLoop = Task.Run(() => RetryLoopAsync(pump), CancellationToken.None);
+        }
+    }
+
+    private async Task RetryLoopAsync(CancellationToken stop)
+    {
+        var delay = FirstRetryDelay;
+        while (!stop.IsCancellationRequested)
         {
             try
             {
-                if (await _tokens.GetAsync(SteamPrefillModule.ModuleId, CancellationToken.None) is null)
+                if (await _tokens.GetAsync(SteamPrefillModule.ModuleId, stop) is null)
                 {
-                    return; // never signed in: nothing to resume
+                    return; // never signed in (or signed out): nothing to resume
                 }
-                await EnsureSignedInAsync(CancellationToken.None);
+                await EnsureSignedInAsync(stop);
+                return;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!stop.IsCancellationRequested)
             {
                 LogResumeFailed(_logger, ex);
+                if (State is not SteamLoginState.Unavailable)
+                {
+                    return; // Steam rejected the stored login: the user has to sign in again
+                }
             }
-        }, CancellationToken.None);
-        return Task.CompletedTask;
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            var retryNow = Interlocked.Exchange(ref _retryNow, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            try
+            {
+                await Task.WhenAny(Task.Delay(delay, stop), retryNow.Task);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            delay = delay * 2 < MaxRetryDelay ? delay * 2 : MaxRetryDelay;
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -251,8 +306,19 @@ public sealed partial class SteamKitSession : ISteamSession, ISteamLibrary, ISte
                 ?? throw new InvalidOperationException("Not signed in to Steam. Sign in on the Steam page first.");
             var token = JsonSerializer.Deserialize<StoredToken>(json)!;
             State = new SteamLoginState.Connecting();
-            await ConnectAsync(ct);
-            await LogOnAsync(token, ct);
+            try
+            {
+                await ConnectAsync(ct);
+                await LogOnAsync(token, ct);
+            }
+            catch (Exception ex) when (State is SteamLoginState.Connecting)
+            {
+                // Not a rejected login (that ends in SignedOut): Steam is unreachable. Keep the token
+                // and keep retrying, so the UI doesn't hang on "Connecting" and the next Job can run.
+                State = new SteamLoginState.Unavailable(ex is TimeoutException ? "Timed out connecting to Steam." : ex.Message);
+                StartRetryLoop();
+                throw;
+            }
         }
         finally
         {

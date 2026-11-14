@@ -45,6 +45,12 @@
             <p role="status">Connecting to Steam…</p>
             break;
 
+        case SteamLoginState.Unavailable unavailable:
+            <p class="error" role="alert">@unavailable.Error</p>
+            <p class="muted">Steam can't be reached right now. Your login is kept, and the app keeps retrying automatically.</p>
+            <button id="steam-retry" type="button" @onclick="Login.ReconnectAsync">Retry now</button>
+            break;
+
         case SteamLoginState.AwaitingDeviceConfirmation:
             <p role="status">Approve this sign-in in the Steam Mobile app.</p>
             <button id="steam-cancel" type="button" @onclick="Login.Cancel">Cancel</button>

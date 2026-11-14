@@ -23,6 +23,9 @@ public interface ISteamLogin
     /// <summary>Abandons a login in progress.</summary>
     void Cancel();
 
+    /// <summary>After <see cref="SteamLoginState.Unavailable"/>: tries to sign in with the stored login now instead of waiting.</summary>
+    Task ReconnectAsync();
+
     /// <summary>Signs out and forgets the stored token.</summary>
     Task SignOutAsync(CancellationToken ct);
 }
@@ -56,4 +59,10 @@ public abstract record SteamLoginState
     public sealed record ShowingQrCode(string ChallengeUrl) : SteamLoginState;
 
     public sealed record SignedIn(string AccountName) : SteamLoginState;
+
+    /// <summary>
+    /// A login is stored, but Steam can't be reached right now (network, Steam maintenance).
+    /// The session keeps retrying in the background.
+    /// </summary>
+    public sealed record Unavailable(string Error) : SteamLoginState;
 }
