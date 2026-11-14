@@ -8,11 +8,30 @@ namespace LancachePrefill.Web.Tests;
 public sealed class SteamLoginDialogTests : IDisposable
 {
     private readonly BunitContext _ctx = new();
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
     private readonly FakeSteamLogin _login = new();
 
     public SteamLoginDialogTests() => _ctx.Services.AddSingleton<ISteamLogin>(_login);
 
     private IRenderedComponent<SteamLoginDialog> Render() => _ctx.Render<SteamLoginDialog>();
+
+    [Fact]
+    public void When_steam_is_unreachable_it_says_so_retries_by_itself_and_offers_to_retry_now()
+    {
+        var dialog = Render();
+        _login.SetState(new SteamLoginState.Unavailable("Could not connect to Steam."));
+
+        dialog.WaitForAssertion(() =>
+        {
+            Assert.Contains("Could not connect to Steam.", dialog.Find("[role=alert]").TextContent, StringComparison.Ordinal);
+            Assert.Contains("automatically", dialog.Markup, StringComparison.Ordinal);
+            Assert.Empty(dialog.FindAll("#steam-credentials")); // the stored login is kept: no new sign-in needed
+        }, Wait);
+
+        dialog.Find("#steam-retry").Click();
+
+        Assert.Equal(["reconnect"], _login.Calls);
+    }
 
     [Fact]
     public void Signed_out_it_asks_for_username_and_password_and_starts_the_login_with_them()

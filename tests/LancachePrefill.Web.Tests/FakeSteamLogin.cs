@@ -36,6 +36,12 @@ public sealed class FakeSteamLogin : ISteamLogin
 
     public void Cancel() => Calls.Add("cancel");
 
+    public Task ReconnectAsync()
+    {
+        Calls.Add("reconnect");
+        return Task.CompletedTask;
+    }
+
     public Task SignOutAsync(CancellationToken ct)
     {
         Calls.Add("signout");
